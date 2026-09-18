@@ -8,7 +8,9 @@
 import { useState, useEffect } from 'react';
 
 // Dark fallback used during SSR/prerender (no document) and before hydration.
-const DARK = { surface: '#1F1918', panel: '#181413', border: '#332A29', text: '#EDE8E8', muted: '#9A8F8F' };
+const DARK = { surface: '#1F1918', panel: '#181413', border: '#332A29', text: '#EDE8E8', muted: '#9A8F8F',
+  positive: '#2DD4A0', negative: '#F06580', brand: '#E83224',
+};
 
 export function chartTheme() {
   if (typeof window === 'undefined' || typeof document === 'undefined') return DARK;
@@ -20,6 +22,11 @@ export function chartTheme() {
     border: v('--s4', DARK.border),
     text: v('--text-primary', DARK.text),
     muted: v('--text-secondary', DARK.muted),
+    // NUESTRO: Plotly no resuelve var(--x) en marker.color ni line.color; se
+    // queda con su paleta por defecto. Se le da el valor ya resuelto.
+    positive: v('--positive', DARK.positive),
+    negative: v('--negative', DARK.negative),
+    brand: v('--brand', DARK.brand),
   };
 }
 

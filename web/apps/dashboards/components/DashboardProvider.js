@@ -14,6 +14,7 @@ import { createContext, useContext, useEffect, useState, useMemo, useCallback } 
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { apiGet } from '../lib/api';
 import { periodToRange, PERIODS, DEFAULT_PERIOD } from '../lib/period';
+import { esTableroNuestro } from '../lib/rutas';
 
 const Ctx = createContext(null);
 export const useDashboard = () => useContext(Ctx);
@@ -60,6 +61,11 @@ export default function DashboardProvider({ children }) {
   useEffect(() => {
     if (!hydrated) return;
     try { localStorage.setItem(LS_KEY, JSON.stringify(ctx)); } catch { /* ignore */ }
+    // NUESTRO: el monitor SPP no lee cartera, periodo ni fuente, asi que
+    // estamparlos en su URL solo produce enlaces y marcadores cargados de
+    // parametros que ninguna de sus vistas mira. El localStorage de arriba
+    // sigue guardando el contexto para los demas tableros.
+    if (esTableroNuestro(pathname)) return;
     const sp = new URLSearchParams();
     if (ctx.portfolioId) sp.set('portfolio', ctx.portfolioId);
     sp.set('period', ctx.period);

@@ -1,0 +1,25 @@
+# .gitattributes
+# ---------------------------------------------------------------
+# Un solo fin de linea en el repositorio: LF.
+#
+# Existe por la adopcion de la interfaz: el frontend viene de otro
+# repositorio (dpreque/portfolio_analytics_platform, ver
+# web/apps/dashboards/vendor/upstream.json) cuyos archivos estan en
+# LF, mientras el arbol local los tenia en CRLF. Sin esto, cada
+# archivo copiado aparece como modificado de arriba abajo y comparar
+# una version nueva con la nuestra se vuelve imposible: el diff dice
+# "todo cambio" cuando en realidad no cambio nada.
+#
+# Los archivos de Windows se quedan en CRLF a proposito: el
+# Programador de tareas y cmd.exe los tratan mejor.
+# ---------------------------------------------------------------
+
+* text=auto eol=lf
+
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+
+*.png  binary
+*.xlsx binary
+*.xls  binary
+*.dump binary

@@ -46,9 +46,15 @@ def required(key: str) -> str:
     """
     val = os.getenv(key)
     if not val:
+        # The pointer must name a file that actually travels with the
+        # project: ROTATION.md is git-ignored, so on a machine set up
+        # from the repo zip this message used to send the operator to a
+        # file that does not exist - as the very first error they see.
+        guia = ('See ROTATION.md.' if (PROJECT_ROOT / 'ROTATION.md').exists()
+                else 'See the comments in .env.example and INSTALACION.md.')
         raise MissingSecret(
             f'{key} is not set. Copy .env.example to .env at the project root '
-            f'({PROJECT_ROOT}) and fill in {key}. See ROTATION.md.'
+            f'({PROJECT_ROOT}) and fill in {key}. {guia}'
         )
     return val
 
@@ -58,11 +64,15 @@ def optional(key: str, default: str | None = None) -> str | None:
     Reads a non-secret value that has a safe default (a port, a flag).
     Never use this for a credential - use required().
 
+    An EMPTY value counts as unset on purpose: .env.example ships every
+    key blank (KEY=), and os.getenv's own default would lose to that
+    empty string - which once turned every data path CWD-relative.
+
     :param key: Environment variable name
     :type key: str
-    :param default: Value to use when the key is unset
+    :param default: Value to use when the key is unset or empty
     :type default: str | None
     :return: The value or the default
     :rtype: str | None
     """
-    return os.getenv(key, default)
+    return os.getenv(key) or default

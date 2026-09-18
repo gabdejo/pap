@@ -10,6 +10,8 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { useDashboard } from './DashboardProvider';
+// NUESTRO: que rutas son de nuestros tableros, en un solo sitio.
+import { esTableroNuestro } from '../lib/rutas';
 
 const SOURCES = [['bloomberg', 'Bloomberg'], ['fms', 'FMS']];
 
@@ -32,6 +34,10 @@ export default function ContextPill() {
   }, [open]);
 
   if (!d) return null;
+  // NUESTRO: el monitor de valor cuota y el Tradebook no leen cartera, periodo
+  // ni fuente - tienen sus propios controles - asi que la pildora entera
+  // seria un mando muerto que parece mover la pagina.
+  if (esTableroNuestro(path)) return null;
   const showFund = !(path === '/comparacion' || path === '/comparacion/');
   const allPeriods = [...d.periods, 'Custom'];
   const fundLabel = d.portfolio?.display_name || (d.portfolios.length ? '—' : 'Loading…');

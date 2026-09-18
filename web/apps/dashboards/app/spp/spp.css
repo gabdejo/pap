@@ -1,0 +1,41 @@
+/* app/spp/spp.css */
+/* ===========================================================================
+   NUESTRO. Lo propio del tablero Valor Cuota SPP, y solo eso.
+
+   Vivia al final de globals.css, mezclado con el sistema de diseno base, y
+   cada version nueva de la interfaz obligaba a rescatarlo a mano. Ahora lo
+   carga app/spp/layout.js, el unico sitio que lo necesita.
+
+   Los widgets que este tablero comparte con los demas (pestañas, botones
+   segmentados, desplegables, rejilla de dos columnas, tablas de informe,
+   bitacora) se mudaron a app/estilos/tablero.css cuando aparecio el segundo
+   modulo. Aqui queda lo que no tiene sentido fuera del valor cuota.
+   =========================================================================== */
+
+/* AFP color chip in tables. */
+.spp-chip {
+  display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+  margin-right: 7px; vertical-align: baseline;
+}
+
+/* Windows tables: AFP section rows. */
+.spp-vent table { min-width: 100%; }
+.spp-seccion td {
+  background: var(--s3); font-weight: 600; letter-spacing: .02em;
+  border-top: 1px solid var(--s4);
+}
+
+/* Monthly rank cells. */
+.spp-puesto { text-align: center; }
+
+/* Corte entre lo que gobiernan los filtros de arriba y lo que trae sus
+   propios controles: una linea con la explicacion en medio. */
+.spp-corte {
+  display: flex; align-items: center; gap: 14px;
+  margin: 26px 0 22px; color: var(--text-secondary); font-size: 12px;
+}
+.spp-corte::before, .spp-corte::after {
+  content: ''; flex: 1; border-top: 1px solid var(--s4);
+}
+.spp-corte span { white-space: nowrap; }
+@media (max-width: 720px) { .spp-corte span { white-space: normal; text-align: center; } }

@@ -531,12 +531,16 @@ def update_series_run_metadata(
     Called by loaders after each pipeline run to track operational state.
     """
     cur = conn.cursor()
+    # GREATEST, not COALESCE: last_loaded_date is a high-water mark of
+    # coverage. Loading an OLDER batch (a historical file behind current
+    # coverage) must never regress it; GREATEST ignores a NULL argument,
+    # so passing None still keeps the existing value.
     cur.execute(
         """
         UPDATE series_registry
         SET last_run_at       = NOW(),
             last_run_status   = %s,
-            last_loaded_date  = COALESCE(%s, last_loaded_date),
+            last_loaded_date  = GREATEST(%s, last_loaded_date),
             updated_at        = NOW()
         WHERE series_id = %s
         """,
