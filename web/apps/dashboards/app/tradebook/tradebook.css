@@ -1,0 +1,53 @@
+/* app/tradebook/tradebook.css */
+/* ===========================================================================
+   NUESTRO. Lo propio del Tradebook. Los widgets compartidos con el monitor
+   de valor cuota están en app/estilos/tablero.css.
+   =========================================================================== */
+
+/* El lado de una operación se lee de un vistazo por el color, no leyendo la
+   palabra. Compra y venta usan los semánticos, no el de marca: aquí el verde
+   y el rojo dicen dirección, que es justo lo que significan. */
+.tb-lado {
+  display: inline-block; padding: 1px 7px; border-radius: 4px;
+  font-size: 11px; font-weight: 600; letter-spacing: .03em;
+}
+.tb-lado.compra { background: var(--positive-tint, rgba(34,160,90,.16)); color: var(--positive); }
+.tb-lado.venta  { background: var(--negative-tint, rgba(214,58,48,.16)); color: var(--negative); }
+
+/* Una fila derivada de posiciones no es una operación observada, y tiene que
+   decirlo en la tabla y no solo en una nota al pie. */
+.tb-origen {
+  font-size: 11px; color: var(--text-muted);
+  border: 1px solid var(--s4); border-radius: 4px; padding: 1px 6px;
+}
+.tb-origen.posiciones { border-color: var(--warning); color: var(--warning); }
+
+/* Barras de composición dentro de la celda: el peso relativo se ve sin tener
+   que comparar números de seis cifras entre sí. */
+.tb-barra {
+  position: relative; display: block; height: 18px; border-radius: 3px;
+  background: var(--brand-tint); overflow: hidden;
+}
+.tb-barra > span {
+  position: absolute; inset: 0 auto 0 0; background: var(--brand);
+  opacity: .75; border-radius: 3px;
+}
+
+/* Rejilla de tarjetas de totales del Panel. */
+.tb-totales {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px; margin-bottom: 16px;
+}
+.tb-total {
+  border: var(--card-border); border-radius: 10px; background: var(--s1);
+  padding: 12px 14px;
+}
+.tb-total .rotulo {
+  font-size: 11px; color: var(--text-muted); letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.tb-total .cifra {
+  font-family: var(--font-mono); font-size: 20px; margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.tb-total .pie { font-size: 11px; color: var(--text-muted); margin-top: 2px; }

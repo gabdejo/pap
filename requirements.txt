@@ -11,3 +11,10 @@ selenium
 beautifulsoup4
 exchange_calendars
 apscheduler<4
+lxml
+openpyxl
+requests
+# SPP valor cuota scraper: real Chrome through the SBS WAF (see src/scrapers/spp.py)
+playwright
+# FastAPI file uploads (bulk Bloomberg series registration)
+python-multipart

@@ -81,6 +81,9 @@ const MODULES = [
   { key: 'positioning', name: 'Positioning', href: '/positioning/', status: 'Q2 2026 · PRO 1 / 2 / 3', live: true },
   { key: 'contribution', name: 'Contribution', href: '/contribution/', status: 'YTD · Fondo 1', live: true },
   { key: 'comparison', name: 'Comparison', href: '/comparacion/', status: 'Select securities to begin', live: false },
+  // NUESTRO: los dos tableros que no existen aguas arriba.
+  { key: 'spp', name: 'Valor Cuota SPP', href: '/spp/', status: 'Diario · fuente SBS', live: true },
+  { key: 'tradebook', name: 'Tradebook', href: '/tradebook/', status: 'Operaciones de la mesa', live: true },
 ];
 
 export default function Home() {

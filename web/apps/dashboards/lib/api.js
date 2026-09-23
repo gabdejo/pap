@@ -3,7 +3,9 @@
 // Tiny fetch helper. BASE is empty in production (relative /api, same origin as
 // FastAPI) and the uvicorn URL in dev (via NEXT_PUBLIC_API_BASE).
 // ---------------------------------------------------------------------------
-const BASE = process.env.NEXT_PUBLIC_API_BASE || '';
+// Exported: lib/spp.js builds download URLs and mutating requests on the
+// same origin - the API base must have exactly one owner.
+export const BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
 export async function apiGet(path) {
   const res = await fetch(`${BASE}${path}`);

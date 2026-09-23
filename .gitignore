@@ -52,6 +52,15 @@ out/
 next-env.d.ts
 npm-debug.log*
 
+# ...except the BUILT dashboard, which is committed on purpose (5.7 MB).
+# The second machine installs the project from a zip of this repo and
+# has no npm access: without the bundle the API serves no page at all,
+# and rebuilding it there would need node_modules plus a build-time
+# download of the Google fonts. Rebuild with `npm run build` in
+# web/apps/dashboards and commit the result like any other artifact.
+!web/apps/dashboards/out/
+!web/apps/dashboards/out/**
+
 # --- Pipeline outputs (data/raw, data/staging, data/logs) -------------
 data/
 *.log
@@ -63,3 +72,4 @@ data/
 Thumbs.db
 desktop.ini
 .DS_Store
+

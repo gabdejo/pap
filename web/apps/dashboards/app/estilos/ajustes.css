@@ -1,0 +1,52 @@
+/* app/estilos/ajustes.css */
+/* ===========================================================================
+   NUESTRO. Lo nuestro de alcance global, cargado DESPUES de globals.css.
+
+   globals.css es el sistema de diseno de aguas arriba y se queda verbatim:
+   cuando llegue una version nueva se reemplaza entero y esto sobrevive.
+   Aqui va SOLO lo que globals.css no trae o trae distinto para todo el sitio.
+   Lo de cada tablero va en su hoja (app/spp/spp.css, app/tradebook/
+   tradebook.css) y lo que ambos comparten en estilos/tablero.css.
+
+   Los tokens (--brand, --positive, --negative, --warning, --card-border) los
+   define globals.css desde la release 0.1.8 de aguas arriba con los mismos
+   nombres que usan nuestros tableros: no hace falta puente.
+   =========================================================================== */
+
+/* .dim means "fainter than the surrounding text" everywhere, so it has to
+   win over .page-sub's own color: same specificity, and .page-sub is
+   declared later in globals.css, so the combination silently did nothing. */
+.page-sub.dim { color: var(--text-muted); }
+
+/* Weight follows consequence: one default action per panel, and the ones
+   that delete or overwrite say so before they are clicked. La accion
+   principal lleva el color de MARCA; lo destructivo, el semantico de
+   negativo. Nunca al reves: la marca no significa peligro. */
+.btn.principal { background: var(--brand); border-color: var(--brand); color: #fff; }
+.btn.principal:hover { background: var(--brand-dark); border-color: var(--brand-dark); color: #fff; }
+.btn.principal:disabled { background: var(--brand); }
+.btn.peligro { color: var(--negative); }
+.btn.peligro:hover { border-color: var(--negative); color: var(--negative); }
+
+/* NINGUN cuadro tiene scroll vertical propio: crece con su contenido y quien
+   scrollea es la pagina. Cuanto se ve lo deciden los botones de expandir y
+   contraer (components/useVerTodo.js), no una cajita con barra. Queda el
+   scroll HORIZONTAL, que no es opcional: una tabla de cincuenta columnas sin
+   el desbordaria la pagina entera.
+
+   globals.css trae .table-wrap con max-height: 62vh; hay que anularlo a mano
+   o el scroll vertical vuelve con cada actualizacion. El borde, el radio y la
+   sombra SI se heredan. */
+.table-wrap { overflow-x: auto; overflow-y: visible; max-height: none; }
+
+/* Dos clases que globals.css no trae y las paginas SI usan. Estaban en el
+   sistema de diseno anterior y se perdieron al cambiarlo; sin ellas el aviso
+   se pinta como texto normal y deja de avisar, que es un fallo que no rompe
+   nada y por eso nadie nota. .flag-warn lo usan la vista de precios de aguas
+   arriba y seis sitios del monitor; .combo-meta, el buscador de valores.
+   Color SEMANTICO de aviso, no el de marca: aqui dice "mira esto". */
+.flag-warn { color: var(--warning); }
+.combo-meta {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-secondary);
+}

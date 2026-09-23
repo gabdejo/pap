@@ -1,0 +1,41 @@
+# requirements.lock.txt
+# ---------------------------------------------------------------
+# The EXACT versions this project was last verified against, pinned so
+# a second machine reproduces the environment instead of resolving
+# whatever is newest that day (pandas 3.x already changed string dtypes
+# and copy-on-write; playwright couples its driver to Chrome).
+#
+# Install on a new machine:
+#   py -3 -m venv .venv
+#   .venv\Scripts\python.exe -m pip install -r requirements.lock.txt
+#
+# Without access to PyPI (the office network), bring the wheels from a
+# machine that does have it - same Windows and Python version:
+#   python -m pip download -r requirements.lock.txt -d wheelhouse
+#   (copy wheelhouse\ next to the repo, then on the target machine)
+#   .venv\Scripts\python.exe -m pip install --no-index --find-links wheelhouse -r requirements.lock.txt
+#
+# requirements.txt stays unpinned for day-to-day upgrades; regenerate
+# this file after verifying a new set:
+#   .venv\Scripts\python.exe -m pip freeze > requirements.lock.txt
+# Verified on Python 3.14.7, Windows 11 (2026-09-11).
+# ---------------------------------------------------------------
+
+PyYAML==6.0.3
+beautifulsoup4==4.15.0
+exchange_calendars==4.13.2
+fastapi==0.141.1
+lxml==6.1.2
+numpy==2.5.2
+openpyxl==3.1.5
+pandas==3.0.5
+playwright==1.62.0
+psycopg==3.3.5
+psycopg-binary==3.3.5
+pyodbc==5.3.0
+python-dotenv==1.2.3
+python-multipart==0.0.32
+requests==2.34.2
+selenium==4.48.0
+starlette==1.6.0
+uvicorn==0.52.4
