@@ -1,0 +1,46 @@
+# config/afps.yaml
+# ---------------------------------------------------------------
+# Registry of SPP pension fund managers (AFPs) and fund types.
+# Ported from the standalone SPP monitor's afps.json.
+#
+# Editing this file is enough to onboard a new AFP or rename an
+# existing one - no code changes needed.
+#
+#   key       STABLE identity. Names the dim_entity procode
+#             (SPP_HABITAT_F2) and never changes: changing it
+#             orphans that AFP's historical data.
+#   name      Display name. Safe to change at any time.
+#   aliases   How the AFP appears in SBS publications. When an AFP
+#             renames itself, ADD the new name without removing the
+#             old one so the historical files keep resolving.
+#   color     Brand color, injected into the dashboard charts.
+#   color_solid  Optional. A stronger tone for the house AFP's text.
+#   house     The house AFP: base of relative-performance tables.
+#             Exactly one entry must set it.
+#   funds     Optional. If an AFP only operates some fund types,
+#             list them; omitted means all of `funds` below.
+#
+# funds: the fund types the SPP has today. Fund 0 is capital-protected.
+# ---------------------------------------------------------------
+
+funds: [0, 1, 2, 3]
+
+afps:
+  - key: habitat
+    name: HABITAT
+    aliases: [HABITAT, AFP HABITAT, "HÁBITAT", "AFP HÁBITAT"]
+    color: "#c50331"
+  - key: integra
+    name: INTEGRA
+    aliases: [INTEGRA, AFP INTEGRA]
+    color: "#0033a0"
+  - key: prima
+    name: PRIMA
+    aliases: [PRIMA, AFP PRIMA, PRIMA AFP]
+    color: "#ca3f04"
+  - key: profuturo
+    name: PROFUTURO
+    aliases: [PROFUTURO, AFP PROFUTURO, PROFUTURO AFP]
+    color: "#e83224"
+    color_solid: "#d02b1f"
+    house: true
