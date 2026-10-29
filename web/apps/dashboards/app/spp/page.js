@@ -16,7 +16,7 @@ import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { apiGet } from '../../lib/api';
 import {
-  COMPETITOR_GRAY, alphaOf, colorOf, periodWindow, fDate, fmtReturn,
+  COMPETITOR_GRAY, alphaOf, colorOf, periodWindow, fDate, fmtMetric, fmtReturn,
   grayLine, nInt, metricName, operates as operatesCfg, houseFirst, sign,
   shownValue,
 } from '../../lib/spp';
@@ -198,6 +198,20 @@ export default function SppPanelPage() {
     });
   };
 
+  // The name and the last value at the end of every line, so the chart
+  // reads without the legend. Annotations, not trace text: Plotly does not
+  // keep texts apart, and two AFPs closing a point from each other wrote
+  // one label over the other. Each label starts at its line's last value
+  // and the labels are then spread, in the order of the returns, so that
+  // neighbours sit a line of type apart.
+  const endLabel = (name, y) => {
+    if (y == null) return '';
+    const value = scale === 'alpha' ? `${y >= 0 ? '+' : ''}${y.toFixed(1)} bps`
+      : scale === 'base' ? y.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        : fmtMetric(y, metric, true);
+    return `${name}  ${value}`;
+  };
+
   const traces = useMemo(() => {
     if (scale === 'alpha') return alphaTraces();
     const withData = series.filter((s) => s.points.length);
@@ -243,6 +257,60 @@ export default function SppPanelPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [series, scale, cfg, house]);
 
+  // The y range is set by hand - the data span plus 5%, and the zero in
+  // Alpha - so the pixels per unit are known and the labels can be kept a
+  // line of type apart. The plot area's height is read from Plotly once
+  // drawn (the legend under the axis takes part of the bottom margin, so
+  // it is not the chart height minus the margins); 309 px is what the
+  // 420 px chart measures today, used until the first measurement.
+  const [plotPx, setPlotPx] = useState(309);
+  const measurePlot = (_, gd) => {
+    const len = gd?._fullLayout?.yaxis?._length;
+    if (len && Math.abs(len - plotPx) > 1) setPlotPx(len);
+  };
+  const LABEL_GAP_PX = 14;
+  // Top-down pass: each label at least a gap under the one above;
+  // bottom-up pass: the stack does not run past the floor.
+  const { yRange, endLabels } = useMemo(() => {
+    let lo = Infinity; let hi = -Infinity;
+    traces.forEach((t) => (t.y || []).forEach((v) => {
+      if (v == null) return;
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }));
+    if (!Number.isFinite(lo)) return { yRange: undefined, endLabels: [] };
+    if (scale === 'alpha') { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+    const pad = (hi - lo || Math.abs(hi) || 1) * 0.05;
+    lo -= pad; hi += pad;
+    const pxPerUnit = plotPx / (hi - lo);
+    const gap = LABEL_GAP_PX / pxPerUnit;
+    const labels = traces
+      .filter((t) => t.y?.length && t.y[t.y.length - 1] != null)
+      .map((t) => ({
+        x: t.x[t.x.length - 1], anchor: t.y[t.y.length - 1], color: t.line?.color,
+        text: endLabel(t.name, t.y[t.y.length - 1]),
+      }))
+      .sort((a, b) => b.anchor - a.anchor);
+    labels.forEach((l, i) => { l.y = i ? Math.min(l.anchor, labels[i - 1].y - gap) : l.anchor; });
+    for (let i = labels.length - 1; i >= 0; i -= 1) {
+      const floor = i === labels.length - 1 ? lo + gap / 2 : labels[i + 1].y + gap;
+      labels[i].y = Math.max(labels[i].y, floor);
+    }
+    return {
+      yRange: [lo, hi],
+      // The text sits at the spread position, a little right of the last
+      // date, with no leader: the stack keeps the order of the returns,
+      // which is what the eye needs to pair a label with its line.
+      endLabels: labels.map((l) => ({
+        x: l.x, y: l.y, xref: 'x', yref: 'y', text: l.text, xshift: 10,
+        xanchor: 'left', yanchor: 'middle', align: 'left',
+        font: { color: l.color, size: 11 },
+        showarrow: false,
+      })),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [traces, scale, plotPx]);
+
   const ct = chartTheme();
 
   const pdfReport = async () => {
@@ -287,8 +355,8 @@ export default function SppPanelPage() {
     // its color; competitors, neutral.
     const afpOrder = order || relativeOrder;
     const funds = (cfg?.funds || []).filter((f) => rows.some((r) => r.fund === f));
-    // A thick rule where the unit changes (percent -> basis points -> the
-    // level), so the eye does not read +1.00% and +19 bps as one scale.
+    // A thick rule where the unit changes (basis points -> percent -> the
+    // level), so the eye does not read +19 bps and +1.00% as one scale.
     const unitBreak = new Set(cols
       .filter((c, i) => withUnit && i > 0 && c[2] !== cols[i - 1][2]).map((c) => c[0]));
     const breakClass = (key) => (unitBreak.has(key) ? ' spp-unit-break' : '');
@@ -428,10 +496,14 @@ export default function SppPanelPage() {
         {traces.length ? (
           <PlotlyChart
             data={traces}
+            onInitialized={measurePlot}
             layout={{
               // " bps" lengthens the axis labels: without the extra margin
-              // the minus sign is clipped and -200 reads as 200.
-              margin: { l: scale === 'alpha' ? 95 : 70, r: 20, t: 10, b: 60 },
+              // the minus sign is clipped and -200 reads as 200. The right
+              // margin holds the end-of-line labels (name and value). Top
+              // and bottom margins are part of the label spacing above.
+              margin: { l: scale === 'alpha' ? 95 : 70, r: 150, t: 10, b: 60 },
+              annotations: endLabels,
               // One label per date with a block per AFP, like the price
               // viewer's card: the date on top and, below, each AFP with
               // its cumulative and its day.
@@ -446,6 +518,7 @@ export default function SppPanelPage() {
                 zeroline: scale === 'alpha',
                 zerolinecolor: ct.muted, zerolinewidth: 1.5,
                 ticksuffix: scale === 'alpha' ? ' bps' : '',
+                range: yRange,
               },
             }}
           />
@@ -491,7 +564,10 @@ export default function SppPanelPage() {
                 autorange: 'reversed', dtick: 1, range: [posTotal + 0.5, 0.5],
                 title: 'Rank', zeroline: false,
               },
-              xaxis: { type: 'category' },
+              // The API's chronological order; by first appearance a trace
+              // missing a month would have pushed that month to the end.
+              xaxis: { type: 'category', categoryorder: 'array',
+                categoryarray: periods.map((p) => p.label) },
             }}
           />
         ) : <div className="dim">Not enough closed months.</div>)}
@@ -599,9 +675,9 @@ export default function SppPanelPage() {
               {/* Returns only: the level itself is the Book's business. */}
               <WindowsTable cols={(win.return_columns || []).filter((c) => c[2] !== 'level')}
                 rows={visibleRows(win.absolute)} withUnit />
-              <p className="page-sub">Days and months in basis points; from 3M onward in percent.
-                Trailing windows count back from the control date. FY is the fiscal year, 31/10 to
-                31/10. The daily columns are that day's move, not cumulative.</p>
+              <p className="page-sub">Newest on the left. Up to 6M in basis points; from YTD on in
+                percent. Trailing windows count back from the control date. FY is the fiscal year,
+                31/10 to 31/10. The daily columns are that day's move, not cumulative.</p>
             </details>
           </>
         ) : win == null

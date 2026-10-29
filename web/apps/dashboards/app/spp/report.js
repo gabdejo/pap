@@ -170,7 +170,7 @@ export async function generateReport({ cfg, windows }) {
   doc.setFontSize(7); doc.setTextColor(...GRAY);
   // Split to the page width: in one piece it ran off the right edge.
   const note = doc.splitTextToSize(latin1(
-    'Up to months in basis points; FY, YTD and last year in percent.'), W - 2 * M);
+    'Newest on the left. Up to months in basis points; YTD, FY and last year in percent.'), W - 2 * M);
   doc.text(note, M, doc.lastAutoTable.finalY + 6);
 
   // ---- Alpha: all the YTD, then all the FY; two funds per page -------------

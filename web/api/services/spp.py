@@ -50,38 +50,40 @@ PANEL_METRICS = ["valor_cuota", "fondo"]
 SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
-# Window keys and labels. Column order is CHRONOLOGICAL, oldest on the left
-# and the control date on the right, so the tables read in the same
-# direction as the line chart and the positions heatmap. Mixed windows are
-# ordered by their START date: the trailing years < last year < 12M < FY
-# < YTD < 6M < 3M < M-2 < M-1 < MTD < 5D < the daily moves < the level.
-# (YTD and 6M swap places in the second half of the year; the column does
-# not move with the calendar - reordering it twice a year would cost more
-# than it clarifies. Same for FY, which overtakes the calendar year only
-# in November and December.)
-LEVEL_KEYS = ["year1", "year", "month2", "month1", "month",
-              "t5", "t4", "t3", "t2", "t1", "t"]
-# (key, fixed label or None for a date label, unit). The trailing windows
-# count back from the control date: 3M / 6M / 12M are plain returns, 3A /
-# 5A / 10A are ANNUALIZED (compound rate per year over the window).
+# Window keys and labels. Column order is NEWEST FIRST: the control date on
+# the left, the longest window on the right - the desk reads "what happened
+# today" first and works back. Mixed windows are ordered by their START
+# date, most recent start first: the daily moves < 5D < MTD < M-1 < M-2 <
+# 3M < 6M < YTD < FY < 12M < last year < the trailing years. (YTD and 6M
+# swap places in the second half of the year; the column does not move
+# with the calendar - reordering it twice a year would cost more than it
+# clarifies. Same for FY, which overtakes the calendar year only in
+# November and December.) The monthly positions keep the chronological
+# order, oldest month on the left and the MTD last, like a time axis.
+LEVEL_KEYS = ["t", "t1", "t2", "t3", "t4", "t5",
+              "month", "month1", "month2", "year", "year1"]
+# (key, fixed label or None for a date label, unit). Up to 6M the figures
+# are basis points; from YTD on, percent. The trailing windows count back
+# from the control date: 3M / 6M / 12M are plain returns, 3Y / 5Y / 10Y
+# are ANNUALIZED (compound rate per year over the window).
 RETURN_KEYS = [
-    ("a10",   "10Y",         "pct"),
-    ("a5",    "5Y",          "pct"),
-    ("a3",    "3Y",          "pct"),
-    ("a1",    None,          "pct"),
-    ("m12",   "12M",         "pct"),
-    ("fy",    "FY",          "pct"),
-    ("ytd",   "YTD",         "pct"),
-    ("m6",    "6M",          "pct"),
-    ("m3",    "3M",          "pct"),
-    ("m2",    None,          "bps"),
-    ("m1",    None,          "bps"),
-    ("mtd",   "MTD",         "bps"),
-    ("d5",    "5D",          "bps"),
-    ("d3",    None,          "bps"),
-    ("d2",    None,          "bps"),
-    ("d1",    None,          "bps"),
     ("d0",    None,          "bps"),
+    ("d1",    None,          "bps"),
+    ("d2",    None,          "bps"),
+    ("d3",    None,          "bps"),
+    ("d5",    "5D",          "bps"),
+    ("mtd",   "MTD",         "bps"),
+    ("m1",    None,          "bps"),
+    ("m2",    None,          "bps"),
+    ("m3",    "3M",          "bps"),
+    ("m6",    "6M",          "bps"),
+    ("ytd",   "YTD",         "pct"),
+    ("fy",    "FY",          "pct"),
+    ("m12",   "12M",         "pct"),
+    ("a1",    None,          "pct"),
+    ("a3",    "3Y",          "pct"),
+    ("a5",    "5Y",          "pct"),
+    ("a10",   "10Y",         "pct"),
     ("level", "Unit value",  "level"),
 ]
 # Years behind each annualized window.

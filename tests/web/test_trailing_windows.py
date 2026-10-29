@@ -57,13 +57,18 @@ def test_annualized_is_the_compound_rate_per_year():
     assert _annualized(1.1, 0.0, 3) is None
 
 
-def test_return_columns_carry_the_trailing_windows_in_percent():
+def test_return_columns_run_newest_first_with_one_unit_change():
     keys = [k for k, _, _ in RETURN_KEYS]
+    units = {k: u for k, _, u in RETURN_KEYS}
     for k in ("a10", "a5", "a3", "m12", "m6", "m3"):
         assert k in keys
-        assert dict((k, u) for k, _, u in RETURN_KEYS)[k] == "pct"
-    # Oldest start on the left: the decade before the year, the year
-    # before the quarter, and the level last.
-    assert keys.index("a10") < keys.index("a3") < keys.index("a1") < keys.index("m12")
-    assert keys.index("m6") < keys.index("m3") < keys.index("mtd") < keys.index("level")
+    # Up to 6M in basis points, from YTD on in percent: one unit change.
+    assert all(units[k] == "bps" for k in ("d0", "d1", "d2", "d3", "d5", "mtd", "m1", "m2", "m3", "m6"))
+    assert all(units[k] == "pct" for k in ("ytd", "fy", "m12", "a1", "a3", "a5", "a10"))
+    changes = sum(1 for a, b in zip(keys, keys[1:]) if units[a] != units[b] and "level" not in (a, b))
+    assert changes == 1
+    # Newest start on the left: today, the month, the quarter, the year,
+    # the decade, and the level last.
+    assert keys.index("d0") < keys.index("mtd") < keys.index("m3") < keys.index("m6")
+    assert keys.index("m6") < keys.index("ytd") < keys.index("a1") < keys.index("a10") < keys.index("level")
     assert set(ANNUALIZED_YEARS) == {"a3", "a5", "a10"}
