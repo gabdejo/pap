@@ -12,7 +12,7 @@
 // ---------------------------------------------------------------------------
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { apiGet } from '../../lib/api';
 import {
@@ -28,6 +28,7 @@ import { generateReport } from './report';
 import { chartTheme } from '../../lib/theme';
 
 const PlotlyChart = dynamic(() => import('../../components/PlotlyChart'), { ssr: false });
+const HOVER_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export default function SppPanelPage() {
   const [cfg, setCfg] = useState(null);
@@ -147,21 +148,27 @@ export default function SppPanelPage() {
 
   const series = seriesData?.series || [];
 
-  // What the hover label says: per AFP, how much since the start of the
+  // What the hover card says: per AFP, how much since the start of the
   // window and how much it moved that day, each figure in the color of its
-  // sign. They travel as pre-built text in customdata because the color
-  // depends on the value and the hover template knows no conditions.
-  const withSign = (v, fmt) => {
-    if (v == null || !Number.isFinite(v)) return '<span style="opacity:0.6">—</span>';
-    const t = chartTheme();
-    const color = v > 0 ? t.positive : v < 0 ? t.negative : t.muted;
-    return `<span style="color:${color}">${fmt(v)}</span>`;
-  };
+  // sign. They travel as pre-built text in customdata, and the card is
+  // drawn by the page, not by Plotly: the unified hover lists the traces
+  // in their drawing order, with no way to sort them, and the desk wants
+  // the AFPs in the order of the lines at that date - the highest first,
+  // the order changing where the lines cross. The traces carry
+  // hoverinfo 'none', so Plotly still raises the hover event with every
+  // trace at the date but draws nothing.
   const pct = (v) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)}%`;
   const bps = (v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)} bps`;
-  const cumulativeAndDaily = (ys, fmt, cumulativeOf) => ys.map((y, i) => [
-    withSign(cumulativeOf(y), fmt),
-    withSign(i > 0 ? y - ys[i - 1] : null, fmt),
+  // A figure in the color of its sign, for the hover card.
+  const signed = (v, fmt) => {
+    if (v == null || !Number.isFinite(v)) return <span style={{ opacity: 0.6 }}>—</span>;
+    const t = chartTheme();
+    return <span style={{ color: v > 0 ? t.positive : v < 0 ? t.negative : t.muted }}>{fmt(v)}</span>;
+  };
+  // customdata per point: [cumulative since the window start, the day's move].
+  const cumulativeAndDaily = (ys, cumulativeOf) => ys.map((y, i) => [
+    cumulativeOf(y),
+    i > 0 ? y - ys[i - 1] : null,
   ]);
 
   // Alpha: how much the house has gained over EACH competitor since the
@@ -190,10 +197,8 @@ export default function SppPanelPage() {
         legendrank: houseFirst(cfg, onScreen).indexOf(c.afp) + 1,
         line: { color, width: 2 },
         // In bps the cumulative IS the line's value; the daily, its step.
-        customdata: cumulativeAndDaily(c.y, bps, (y) => y),
-        hovertemplate: `<b>${c.afp}</b><br>Cumulative alpha  %{customdata[0]}`
-          + '<br>Day  %{customdata[1]}<extra></extra>',
-        hoverlabel: { bordercolor: color },
+        customdata: cumulativeAndDaily(c.y, (y) => y),
+        hoverinfo: 'none',
       };
     });
   };
@@ -237,8 +242,8 @@ export default function SppPanelPage() {
       const raw = pts.map((p) => p[1]);
       const start = raw[0];
       const returns = raw.map((v, i) => [
-        withSign(start ? v / start - 1 : null, pct),
-        withSign(i > 0 && raw[i - 1] ? v / raw[i - 1] - 1 : null, pct),
+        start ? v / start - 1 : null,
+        i > 0 && raw[i - 1] ? v / raw[i - 1] - 1 : null,
       ]);
       return {
         x: pts.map((p) => p[0]),
@@ -249,9 +254,7 @@ export default function SppPanelPage() {
         legendrank: houseFirst(cfg, onScreen).indexOf(s.afp) + 1,
         line: { color, width: isHouse ? 2.8 : 1.6 },
         customdata: returns,
-        hovertemplate: `<b>${s.afp}</b><br>Cumulative return  %{customdata[0]}`
-          + '<br>Daily return  %{customdata[1]}<extra></extra>',
-        hoverlabel: { bordercolor: color },
+        hoverinfo: 'none',
       };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -312,6 +315,36 @@ export default function SppPanelPage() {
   }, [traces, scale, plotPx]);
 
   const ct = chartTheme();
+
+  // ---- The hover card ---------------------------------------------------
+  // One card per hovered date, placed next to the pointer inside the chart
+  // wrapper, flipped to the left near the right edge so it never leaves
+  // the panel. Rows sorted by the value at that date, highest first.
+  const chartWrap = useRef(null);
+  const [hover, setHover] = useState(null);
+  const hoverDate = (x) => {
+    const [y, m, d] = String(x).slice(0, 10).split('-');
+    return `${Number(d)} ${HOVER_MONTHS[Number(m) - 1]} ${y}`;
+  };
+  const onChartHover = (ev) => {
+    const pts = (ev?.points || []).filter((p) => p.y != null);
+    const wrap = chartWrap.current;
+    if (!pts.length || !wrap || !ev.event) return;
+    const box = wrap.getBoundingClientRect();
+    const x = ev.event.clientX - box.left;
+    const y = ev.event.clientY - box.top;
+    setHover({
+      date: hoverDate(pts[0].x),
+      rows: pts.map((p) => ({
+        name: p.data.name, color: p.data.line?.color, y: p.y,
+        cumulative: p.customdata?.[0], day: p.customdata?.[1],
+      })).sort((a, b) => b.y - a.y),
+      x, y, flip: x > box.width * 0.62,
+    });
+  };
+  const hoverLabels = scale === 'alpha'
+    ? ['Cumulative alpha', 'Day'] : ['Cumulative return', 'Daily return'];
+  const hoverFmt = scale === 'alpha' ? bps : pct;
 
   const pdfReport = async () => {
     if (!cfg || !win?.control) return;
@@ -494,9 +527,12 @@ export default function SppPanelPage() {
             name={fileNameOf(`${seriesTitle} · ${seriesFooter} · ${windowLabel}`)} />
         </div>
         {traces.length ? (
+          <div className="spp-chart-wrap" ref={chartWrap} onMouseLeave={() => setHover(null)}>
           <PlotlyChart
             data={traces}
             onInitialized={measurePlot}
+            onHover={onChartHover}
+            onUnhover={() => setHover(null)}
             layout={{
               // " bps" lengthens the axis labels: without the extra margin
               // the minus sign is clipped and -200 reads as 200. The right
@@ -504,11 +540,14 @@ export default function SppPanelPage() {
               // and bottom margins are part of the label spacing above.
               margin: { l: scale === 'alpha' ? 95 : 70, r: 150, t: 10, b: 60 },
               annotations: endLabels,
-              // One label per date with a block per AFP, like the price
-              // viewer's card: the date on top and, below, each AFP with
-              // its cumulative and its day.
+              // 'x unified' so the hover event carries every trace at the
+              // date; the card itself is the page's (see onChartHover). The
+              // spike is the vertical line that marks the hovered date.
               hovermode: 'x unified',
-              xaxis: { hoverformat: '%d %b %Y' },
+              xaxis: {
+                showspikes: true, spikemode: 'across', spikesnap: 'data',
+                spikethickness: 1, spikedash: 'dot', spikecolor: ct.muted,
+              },
               yaxis: {
                 type: 'linear',
                 title: scale === 'alpha' ? 'Cumulative alpha (bps)'
@@ -519,9 +558,30 @@ export default function SppPanelPage() {
                 zerolinecolor: ct.muted, zerolinewidth: 1.5,
                 ticksuffix: scale === 'alpha' ? ' bps' : '',
                 range: yRange,
+                // Only the date line: a horizontal spike at the pointer
+                // said nothing (the card carries the values).
+                showspikes: false,
               },
             }}
           />
+          {hover && (
+            <div className="spp-hover"
+              style={hover.flip ? { right: `calc(100% - ${hover.x}px + 14px)`, top: hover.y + 12 }
+                : { left: hover.x + 14, top: hover.y + 12 }}>
+              <div className="spp-hover-date">{hover.date}</div>
+              {hover.rows.map((r) => (
+                <div key={r.name} className="spp-hover-row">
+                  <span className="spp-hover-swatch" style={{ borderColor: r.color }} />
+                  <div>
+                    <div className="spp-hover-name">{r.name}</div>
+                    <div className="spp-hover-kv"><span>{hoverLabels[0]}</span>{signed(r.cumulative, hoverFmt)}</div>
+                    <div className="spp-hover-kv"><span>{hoverLabels[1]}</span>{signed(r.day, hoverFmt)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          </div>
         ) : seriesData == null
           ? <div className="loading">Loading…</div>
           : <p className="page-sub dim">No data for this selection.</p>}

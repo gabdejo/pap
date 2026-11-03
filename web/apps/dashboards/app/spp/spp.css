@@ -89,3 +89,20 @@
 
 .btn.spp-icon { padding: 7px 9px; line-height: 0; }
 .spp-spinning { display: inline-block; font-size: 14px; line-height: 16px; }
+
+/* The series chart's hover card, drawn by the page (Plotly's unified hover
+   cannot sort its rows by value). Positioned next to the pointer inside
+   the chart wrapper; pointer-events off so it never steals the hover. */
+.spp-chart-wrap { position: relative; }
+.spp-hover {
+  position: absolute; z-index: 5; pointer-events: none; white-space: nowrap;
+  background: var(--s1); border: 1px solid var(--s4); border-radius: 6px;
+  padding: 8px 12px; font-family: var(--font-plex), 'IBM Plex Mono', monospace;
+  font-size: 12px; color: var(--text-primary); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+.spp-hover-date { color: var(--text-secondary); margin-bottom: 6px; }
+.spp-hover-row { display: grid; grid-template-columns: 22px auto; column-gap: 8px; margin-top: 6px; }
+.spp-hover-swatch { width: 20px; height: 0; border-top: 2px solid; margin-top: 8px; }
+.spp-hover-name { font-weight: 600; }
+.spp-hover-kv { display: flex; gap: 10px; }
+.spp-hover-kv > span:first-child { color: var(--text-secondary); }
