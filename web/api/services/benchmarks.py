@@ -16,7 +16,7 @@ import pandas as pd
 from src.db import onboard
 from src.db.connection import get_connection
 from src.db.queries import get_entity_id
-from src.pipelines.analytics.benchmark import definitions
+from src.pipelines.analytics.benchmark import definitions, removal
 from src.pipelines.analytics.benchmark.materialize import SOURCE_MODEL, materialize
 from src.pipelines.prices.sbs.valor_cuota import afps
 from web.api.services.spp import read as read_book, recent_cut
@@ -94,6 +94,17 @@ def create(procode: str, display_name: str, base_currency: str = "PEN",
             definitions.assign(conn, bench["portfolio_id"], entity_id)
             bench = definitions.benchmark_by_procode(conn, bench["procode"])
         return _summary(conn, bench)
+
+
+def delete(procode: str) -> dict:
+    """
+    Removes a benchmark with its versions, levels and fund link. One
+    transaction: either everything goes or nothing does.
+    """
+    with get_connection() as conn:
+        result = removal.delete_benchmark(conn, _portfolio_id(conn, procode))
+        conn.commit()
+        return result
 
 
 def _portfolio_id(conn, procode: str) -> int:

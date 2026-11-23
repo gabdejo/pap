@@ -174,6 +174,23 @@ def post_version(procode: str, body: VersionIn) -> dict:
     return {"ok": True, "version_id": version_id}
 
 
+@router.delete("/{procode}")
+def delete_benchmark(procode: str) -> dict:
+    """Removes a benchmark with its versions, levels and fund link. The
+    dashboard asks the operator to confirm before calling this; the API
+    itself has no undo. Refused while the background task is busy, so a
+    rebuild never writes levels of an index that is being removed."""
+    if task.status().get("active"):
+        raise HTTPException(
+            status_code=409,
+            detail="A task is running; wait for it to finish before removing a benchmark.")
+    try:
+        result = svc.delete(procode)
+    except LookupError:
+        raise _not_found(procode) from None
+    return {"ok": True, **result}
+
+
 @router.post("/{procode}/materialize")
 def post_materialize(procode: str) -> dict:
     """Regenerates the levels, valuation and holdings in the background task."""

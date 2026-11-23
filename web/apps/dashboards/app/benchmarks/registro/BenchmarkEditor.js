@@ -85,6 +85,17 @@ export default function BenchmarkEditor({ busy, task, start, onTaskDone }) {
   const [funds, setFunds] = useState([0, 1, 2, 3]);
   const [houseName, setHouseName] = useState('');
   const [createEcho, setCreateEcho] = useState('');
+  // The procode whose row shows the removal question, '' when none.
+  const [deleting, setDeleting] = useState('');
+  const removeBenchmark = async (b) => {
+    setDeleting('');
+    const r = await apiSend(`/api/benchmarks/${encodeURIComponent(b.procode)}`, 'DELETE');
+    if (!r.ok) { setCreateEcho({ ok: false, text: r.data.detail }); return; }
+    const n = r.data.removed || {};
+    setCreateEcho({ ok: true, text: `${b.display_name} removed: ${nInt(n.dim_benchmark_version)} version(s), `
+      + `${nInt(n.fact_prices)} computed day(s) and its fund link.` });
+    loadList();
+  };
 
   // The fund follows the code: an existing benchmark brings its own, a
   // new code ending in _F{n} proposes n; otherwise the operator picks.
@@ -280,10 +291,10 @@ export default function BenchmarkEditor({ busy, task, start, onTaskDone }) {
         <div className="table-wrap">
           <table>
             <thead><tr><th>Code</th><th>Name</th><th>Fund</th><th className="num">Versions</th>
-              <th className="num">Days computed</th><th>From</th><th>To</th><th className="num">Last level</th></tr></thead>
+              <th className="num">Days computed</th><th>From</th><th>To</th><th className="num">Last level</th><th /></tr></thead>
             <tbody>
-              {list === null && <tr><td colSpan={8} className="dim">Loading…</td></tr>}
-              {list && !list.length && <tr><td colSpan={8} className="dim">No benchmark declared yet.</td></tr>}
+              {list === null && <tr><td colSpan={9} className="dim">Loading…</td></tr>}
+              {list && !list.length && <tr><td colSpan={9} className="dim">No benchmark declared yet.</td></tr>}
               {(list || []).map((b) => (
                 <tr key={b.procode} style={b.procode === selected ? { fontWeight: 700 } : undefined}>
                   <td className="mono">{b.procode}</td>
@@ -295,6 +306,23 @@ export default function BenchmarkEditor({ busy, task, start, onTaskDone }) {
                   <td>{fDate(b.to)}</td>
                   <td className="num">{b.last_level == null ? '—'
                     : b.last_level.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</td>
+                  <td className="num" style={{ whiteSpace: 'nowrap' }}>
+                    {/* Removal asks twice: the first click only opens the
+                        question, in the row, with what goes; nothing is sent
+                        until "Yes, remove". */}
+                    {deleting === b.procode ? (
+                      <span className="bm-confirm">
+                        Remove {b.display_name}, its {nInt(b.versions)} version{b.versions === 1 ? '' : 's'}
+                        {b.points ? ` and ${nInt(b.points)} computed days` : ''}? There is no undo.
+                        <button type="button" className="btn active" disabled={busy}
+                          onClick={() => removeBenchmark(b)}>Yes, remove</button>
+                        <button type="button" className="btn" onClick={() => setDeleting('')}>Cancel</button>
+                      </span>
+                    ) : (
+                      <button type="button" className="btn" disabled={busy} title="Remove this benchmark"
+                        onClick={() => { setDeleting(b.procode); setCreateEcho(''); }}>Remove</button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

@@ -480,9 +480,25 @@ def series(fund: int, requested_afps: list[str] | None, metric: str,
             points[sid] = [[str(d), float(v)] for d, v in zip(g["date"], g["price"])]
 
     by_afp = {s["afp"]: s["series_id"] for s in reg}
-    return {"fund": fund, "metric": metric,
-            "series": [{"afp": afp, "points": points.get(by_afp.get(afp), [])}
-                       for afp in requested]}
+    out = [{"afp": afp, "points": points.get(by_afp.get(afp), [])} for afp in requested]
+
+    # The benchmarks assigned to the fund travel as lines of their own
+    # (flagged), only for the unit value: an index has no fund size.
+    if metric == "valor_cuota":
+        with get_connection() as conn:
+            benchmarks = _assigned_benchmarks(conn).get(fund, [])
+        if benchmarks:
+            bench_series = [{"series_id": b["series_id"], "col": b["procode"]} for b in benchmarks]
+            long_b = _prices(bench_series, date_from, date_to)
+            bench_points: dict[int, list] = {}
+            if not long_b.empty:
+                long_b = long_b.sort_values("date")
+                for sid, g in long_b.groupby("series_id", sort=False):
+                    bench_points[sid] = [[str(d), float(v)] for d, v in zip(g["date"], g["price"])]
+            for b in benchmarks:
+                out.append({"afp": b["display_name"] or b["procode"], "benchmark": True,
+                            "procode": b["procode"], "points": bench_points.get(b["series_id"], [])})
+    return {"fund": fund, "metric": metric, "series": out}
 
 
 # ---- Performance windows --------------------------------------------------

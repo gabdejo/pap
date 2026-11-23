@@ -76,7 +76,7 @@
 /* Chart header: centered title and the data button on the right. Three
    columns 1fr auto 1fr, so the button does not pull the title off center. */
 .spp-chart-header {
-  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+  display: grid; grid-template-columns: 1fr auto; align-items: start;
   gap: 12px; margin-bottom: 12px;
 }
 .spp-chart-header > :last-child { justify-self: end; }
@@ -89,3 +89,31 @@
 
 .btn.spp-icon { padding: 7px 9px; line-height: 0; }
 .spp-spinning { display: inline-block; font-size: 14px; line-height: 16px; }
+
+/* The series chart's hover card, drawn by the page (Plotly's unified hover
+   cannot sort its rows by value). Positioned next to the pointer inside
+   the chart wrapper; pointer-events off so it never steals the hover. */
+.spp-chart-wrap { position: relative; }
+.spp-hover {
+  position: absolute; z-index: 5; pointer-events: none; white-space: nowrap;
+  background: var(--s1); border: 1px solid var(--s4); border-radius: 6px;
+  padding: 8px 12px; font-family: var(--font-plex), 'IBM Plex Mono', monospace;
+  font-size: 12px; color: var(--text-primary); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+.spp-hover-date { color: var(--text-secondary); margin-bottom: 6px; letter-spacing: 0.04em; }
+.spp-hover-row {
+  display: grid; grid-template-columns: 22px minmax(80px, auto) auto auto;
+  column-gap: 12px; align-items: center; margin-top: 5px;
+}
+.spp-hover-swatch { width: 20px; height: 0; border-top: 2px solid; }
+.spp-hover-name { font-weight: 500; }
+.spp-hover-house .spp-hover-name { font-weight: 700; }
+.spp-hover-val { text-align: right; }
+
+/* Monthly rank among AFPs: the rank over the month's return in each cell,
+   the house row framed in its color. */
+.spp-grid-ranks td.spp-rank { padding: 5px 4px; }
+.spp-ranks-cell { display: flex; flex-direction: column; align-items: center; line-height: 1.15; }
+.spp-ranks-rank { font-size: 15px; font-weight: 700; }
+.spp-ranks-ret { font-size: 11px; opacity: 0.9; }
+.spp-ranks-house td.spp-rank { outline: 2px solid var(--brand); outline-offset: -2px; }
