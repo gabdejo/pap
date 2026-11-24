@@ -133,14 +133,6 @@ def automated_scraper_enabled() -> bool:
 def fms_enabled() -> bool:
     return bool(get_machine_config().get('fms_enabled', False))
 
-def sbs_ingestion_enabled() -> bool:
-    """
-    True on the machine that ingests SBS files from the network
-    share into Postgres (the i7 server). Exactly one machine
-    should set this, or the daily ingest runs twice.
-    """
-    return bool(get_machine_config().get('sbs_ingestion_enabled', False))
-
 def chromedriver_path() -> str | None:
     """
     Returns the absolute path to chromedriver.exe for this machine.

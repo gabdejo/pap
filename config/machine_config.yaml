@@ -10,27 +10,26 @@
 # Your local copy lives outside the project and is never shared.
 # ---------------------------------------------------------------
 
-# Identifier for this machine. Used in log messages. Try to match hostname.
-# Examples: 'PC-01', 'PC-02', 'BLOOMBERG-WS'
+# Identifier for this machine. Used in logs, job_runs, and to decide
+# which scheduler jobs run here: a job registers on the machine its
+# `machine` field in config/schedules.yaml names (case-insensitive).
+# The two production ids are 'i7' and 'bloomberg-ws'; any other value
+# (a laptop, a test box) schedules nothing.
 machine_id: ''
 
+# The *_enabled flags below are CAPABILITIES: what this machine is able
+# to do, checked by the pipelines' assert_*() guards. They do not
+# schedule anything; schedules.yaml does that.
+
 # Set to true only on machines with Bloomberg BLP API access.
-# Controls whether Bloomberg pipelines are registered in the scheduler
-# and whether run_prices.py --source bloomberg is permitted.
+# Permits run_prices.py --source bloomberg and the Bloomberg jobs.
 bloomberg_enabled: false
 
-# Set to true on machines that can reach the FMS SQL Server and should
-# run the FMS positions pipelines in the scheduler.
+# Set to true on machines that can reach the FMS SQL Server.
 fms_enabled: false
 
-# Set to true on the machine that ingests SBS files from the network
-# share into Postgres (the i7 server). Exactly ONE machine should set
-# this, or the daily SBS ingest runs twice.
-sbs_ingestion_enabled: false
-
 # Set to true on machines used for SBS browser acquisition.
-# Controls whether scraper jobs are registered in the scheduler
-# and whether acquire_sbs.py is permitted to run.
+# Permits acquire_sbs.py and the scraper jobs.
 scraper_enabled: false
 
 # Set to true on machines that run fully automated scrapers

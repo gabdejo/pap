@@ -3,15 +3,15 @@
 # Unified scheduler for all machines. Replaces scheduler_central.py
 # and scheduler_scraper.py.
 #
-# One script, capability-registered: which jobs this process runs
-# is decided entirely by the machine_config flags —
-#   bloomberg_enabled      -> prices_bloomberg, dim_enrichment
-#   scraper_enabled        -> acquire_sbs (browser + image-pad beep),
-#                             acquire_spp (visible Chrome through the
-#                             SBS portal's WAF)
-#   sbs_ingestion_enabled  -> ingest_sbs (gated on the files)
-#   fms_enabled            -> positions_fms (gated on the FMS close)
-# Fire times come from config/schedules.yaml — no cron values here.
+# One script. Which jobs this process runs is ASSIGNED, per job, by
+# the `machine` field in config/schedules.yaml: a job registers where
+# that field names this machine_id and nowhere else. The machine_config
+# flags (bloomberg_enabled, scraper_enabled, fms_enabled) are
+# capabilities only — "this machine can", never "this machine should" —
+# so enabling one to run a pipeline by hand schedules nothing. An
+# assigned job whose capability is missing stops the scheduler at start
+# (JOBS below pairs each job with the capability it needs).
+# Fire times come from the same YAML — no cron values here.
 #
 # Two kinds of job:
 #   - fixed-time: the data is known to exist by the fire time
@@ -71,11 +71,10 @@ from src.configs.machine_config import (
     bloomberg_enabled,
     fms_enabled,
     machine_id,
-    sbs_ingestion_enabled,
     scraper_enabled,
     timezone,
 )
-from src.shared.config_loader import load_schedules
+from src.shared.config_loader import jobs_for_machine, load_schedules
 from src.shared.logging import setup_logging
 
 setup_logging("scheduler")
@@ -418,16 +417,13 @@ def _register(
     job_id: str,
     fn: Callable[[], Optional[date]],
     name: str,
-    jobs_cfg: dict,
+    cfg: dict,
     ready: Optional[Callable[[], bool]] = None,
 ) -> None:
     """hour/minute may be cron expressions ("9-11", "0,30"): the job then
     fires at every slot of the range and _gated() decides per slot.
     `deadline` ("HH:MM", quoted, job timezone) is when a still-closed
     gate becomes an error row; set it to the last slot of the range."""
-    cfg = jobs_cfg.get(job_id)
-    if cfg is None:
-        raise KeyError(f"Job '{job_id}' has no entry in config/schedules.yaml")
     tz = ZoneInfo(cfg.get("timezone", TZ))
     deadline = dtime.fromisoformat(cfg["deadline"]) if "deadline" in cfg else None
     scheduler.add_job(
@@ -446,22 +442,38 @@ def _register(
     )
 
 
+# job_id -> (fn, display name, readiness gate, capability it needs).
+# ingest_sbs needs none: any machine with the share and Postgres can run it.
+JOBS: dict[str, tuple[Callable, str, Optional[Callable[[], bool]], Optional[Callable[[], bool]]]] = {
+    "prices_bloomberg": (job_prices_bloomberg, "Bloomberg daily prices",   None,             bloomberg_enabled),
+    "dim_enrichment":   (job_dim_enrichment,   "Bloomberg dim enrichment", None,             bloomberg_enabled),
+    "acquire_sbs":      (job_acquire_sbs,      "SBS daily acquisition",    None,             scraper_enabled),
+    "acquire_spp":      (job_acquire_spp,      "SPP valor cuota scrape",   None,             scraper_enabled),
+    "ingest_sbs":       (job_ingest_sbs,       "SBS ingestion",            _sbs_files_ready, None),
+    "positions_fms":    (job_positions_fms,    "FMS daily positions",      _fms_closed,      fms_enabled),
+}
+
+
 def register_jobs() -> None:
+    """Registers the jobs schedules.yaml assigns to this machine. The
+    YAML and JOBS must list the same ids (a typo on either side would
+    otherwise drop a job without a word), and an assigned job whose
+    capability flag is off fails here, not at its first fire time."""
     jobs_cfg = load_schedules()["jobs"]
+    if set(jobs_cfg) != set(JOBS):
+        raise KeyError(
+            f"config/schedules.yaml and scheduler JOBS disagree on: "
+            f"{sorted(set(jobs_cfg) ^ set(JOBS))}"
+        )
 
-    if bloomberg_enabled():
-        _register("prices_bloomberg", job_prices_bloomberg, "Bloomberg daily prices", jobs_cfg)
-        _register("dim_enrichment", job_dim_enrichment, "Bloomberg dim enrichment", jobs_cfg)
-
-    if scraper_enabled():
-        _register("acquire_sbs", job_acquire_sbs, "SBS daily acquisition", jobs_cfg)
-        _register("acquire_spp", job_acquire_spp, "SPP valor cuota scrape", jobs_cfg)
-
-    if sbs_ingestion_enabled():
-        _register("ingest_sbs", job_ingest_sbs, "SBS ingestion", jobs_cfg, ready=_sbs_files_ready)
-
-    if fms_enabled():
-        _register("positions_fms", job_positions_fms, "FMS daily positions", jobs_cfg, ready=_fms_closed)
+    for job_id in jobs_for_machine(jobs_cfg, MACHINE):
+        fn, name, ready, capable = JOBS[job_id]
+        if capable is not None and not capable():
+            raise RuntimeError(
+                f"Job '{job_id}' is assigned to this machine ({MACHINE}) in "
+                f"config/schedules.yaml but {capable.__name__} is false here."
+            )
+        _register(job_id, fn, name, jobs_cfg[job_id], ready=ready)
 
     scheduler.add_job(
         job_heartbeat,
@@ -487,14 +499,14 @@ if __name__ == "__main__":
     logger.info(f"Timezone:               {TZ}")
     logger.info(f"bloomberg_enabled:      {bloomberg_enabled()}")
     logger.info(f"scraper_enabled:        {scraper_enabled()}")
-    logger.info(f"sbs_ingestion_enabled:  {sbs_ingestion_enabled()}")
     logger.info(f"fms_enabled:            {fms_enabled()}")
     logger.info(f"Registered jobs:        {registered}")
 
     if registered == ["heartbeat"]:
         logger.warning(
-            "No capability flags set for this machine - only the heartbeat "
-            "will run. Check machine_config (market_data_config.yaml)."
+            f"No job in config/schedules.yaml is assigned to machine_id "
+            f"'{MACHINE}' - only the heartbeat will run. Check the `machine` "
+            f"fields there against this machine's MACHINE_ID / machine_id."
         )
 
     job_heartbeat()  # first heartbeat immediately, not after 5 min

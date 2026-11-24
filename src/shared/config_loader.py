@@ -24,6 +24,24 @@ def load_schedules() -> dict:
     """
     return _load_yaml(CONFIG_DIR / 'schedules.yaml')
 
+def jobs_for_machine(jobs_cfg: dict, machine: str) -> list[str]:
+    """
+    Job ids whose `machine` field names this machine_id (a string, or a
+    list for a job that runs on several). Case-insensitive. A job with
+    no `machine` is a config error: it would silently run nowhere.
+    """
+    me = machine.casefold()
+    out = []
+    for job_id, cfg in jobs_cfg.items():
+        owners = cfg.get('machine')
+        if not owners:
+            raise KeyError(f"Job '{job_id}' has no `machine` in config/schedules.yaml")
+        if isinstance(owners, str):
+            owners = [owners]
+        if me in (str(o).casefold() for o in owners):
+            out.append(job_id)
+    return out
+
 def load_pipelines() -> dict:
     """
     Specific fields/values for pipelines

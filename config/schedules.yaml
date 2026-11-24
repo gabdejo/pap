@@ -1,12 +1,16 @@
 # config/schedules.yaml
 # ---------------------------------------------------------------
 # Cron times for scripts/scheduler.py — the single source of truth
-# for WHEN each job fires. WHICH jobs register on a given machine
-# is decided by the capability flags in machine_config
-# (bloomberg_enabled, scraper_enabled, sbs_ingestion_enabled,
-# fms_enabled), not by this file.
+# for WHEN each job fires and WHERE: a job registers only on the
+# machine its `machine` field names. The machine_config flags
+# (bloomberg_enabled, scraper_enabled, fms_enabled) are capabilities,
+# not assignments: they schedule nothing, but a job assigned to a
+# machine that lacks its capability stops that scheduler at start.
 #
 # Fields per job:
+#   machine              machine_id that runs the job (MACHINE_ID in
+#                        .env / machine_id in market_data_config.yaml,
+#                        case-insensitive); a list for several. Required.
 #   day_of_week          APScheduler cron expression (e.g. mon-fri)
 #   hour, minute         fire time in `timezone`; an int for a fixed-time
 #                        job, or a quoted cron expression ("9-11",
@@ -40,18 +44,21 @@
 
 jobs:
   prices_bloomberg:
+    machine: BLOOMBERG-MSI
     day_of_week: mon-fri
     hour: 16
     minute: 30
     timezone: America/New_York
 
   dim_enrichment:
+    machine: BLOOMBERG-MSI
     day_of_week: mon
     hour: 10
     minute: 0
     timezone: America/New_York   # office hours follow the NYSE session
 
   acquire_sbs:
+    machine: BLOOMBERG-MSI
     day_of_week: mon-fri
     hour: 9
     minute: 30
@@ -60,6 +67,7 @@ jobs:
   # Gate: all SBS files for the prev reporting day on the network share
   # (the operator at acquire_sbs's image pad decides when that is).
   ingest_sbs:
+    machine: I7-SERVER
     day_of_week: mon-fri
     hour: "9-11"
     minute: "0,15,30,45"
@@ -69,6 +77,7 @@ jobs:
   # Gate: FMS.CierreIDI (FlgHistorico = 0) for every active fund on the
   # prev reporting day, i.e. accounting has closed the report.
   positions_fms:
+    machine: I7-SERVER
     day_of_week: mon-fri
     hour: "10-15"
     minute: "0,30"
@@ -81,6 +90,7 @@ jobs:
   # job_runs.finished_at of the acquire_spp rows that carry a run_date
   # (fact_prices has no loaded_at; docs/SCHEDULER.md).
   acquire_spp:
+    machine: BLOOMBERG-MSI
     day_of_week: mon-fri
     hour: "15-17"
     minute: "0,30"
