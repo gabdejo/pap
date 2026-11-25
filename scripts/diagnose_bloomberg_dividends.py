@@ -34,6 +34,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 FIELD = "EQY_DVD_ADJUST_FACT"
 FACTOR_COLS = ["date", "factor", "operator", "flag"]
+# The bulk only returns the action types named by this override, and its
+# default is CAPITAL_CHANGE alone - so cash dividends need their own calls.
+FILTER_OVERRIDE = "CORPORATE_ACTIONS_FILTER"
+ACTION_FILTERS = ["CAPITAL_CHANGE", "ABNORMAL_CASH", "NORMAL_CASH"]
 RAW = {"adjustmentFollowDPDF": False, "adjustmentNormal": False,
        "adjustmentAbnormal": False, "adjustmentSplit": False}
 ADJUSTED = {"adjustmentFollowDPDF": False, "adjustmentNormal": True,
@@ -68,15 +72,15 @@ def _self_check() -> None:
     print("self-check ok")
 
 
-def _fetch_factors(ticker: str) -> pd.DataFrame:
+def _fetch_bulk(ticker: str, action_filter: str) -> pd.DataFrame:
     from src.vendors.bloomberg import data_request, fetch_reference_request
 
-    result = fetch_reference_request(data_request(securities=[ticker], fields=[FIELD]))
-    print(f"  vendor returned: {type(result).__name__}"
-          + ("  <- bulk field NOT parsed by secdata_list_to_df; pipeline needs its own parser"
-             if not isinstance(result, pd.DataFrame) else ""))
+    result = fetch_reference_request(data_request(
+        securities=[ticker], fields=[FIELD],
+        options={"overrides": [{"fieldId": FILTER_OVERRIDE, "value": action_filter}]}))
+    parsed = isinstance(result, pd.DataFrame)
 
-    if isinstance(result, pd.DataFrame):
+    if parsed:
         rows = result[FIELD].iloc[0] if FIELD in result.columns else result.to_dict("records")
     else:
         rows = []
@@ -87,14 +91,26 @@ def _fetch_factors(ticker: str) -> pd.DataFrame:
                 rows.extend(sec.get("fieldData", {}).get(FIELD, []))
 
     df = pd.DataFrame(rows)
+    print(f"  {action_filter:<15} {len(df):>4} rows | vendor returned "
+          f"{'DataFrame' if parsed else 'raw messages (bulk not parsed by secdata_list_to_df)'}")
     if df.empty:
-        return pd.DataFrame(columns=FACTOR_COLS)
-    print(f"  bulk sub-fields as returned: {list(df.columns)}")
+        return pd.DataFrame(columns=FACTOR_COLS + ["filter"])
     df = df.drop(columns=[c for c in ("id",) if c in df.columns])
     assert df.shape[1] == 4, f"expected 4 bulk columns, got {list(df.columns)}"
     df.columns = FACTOR_COLS      # positional: date, factor, operator type, flag
     df["date"] = pd.to_datetime(df["date"])
-    return df.astype({"factor": float, "operator": int, "flag": int})
+    return df.astype({"factor": float, "operator": int, "flag": int}).assign(filter=action_filter)
+
+
+def _fetch_factors(ticker: str) -> pd.DataFrame:
+    """One bulk call per CORPORATE_ACTIONS_FILTER value, concatenated."""
+    df = pd.concat([_fetch_bulk(ticker, f) for f in ACTION_FILTERS], ignore_index=True)
+    dupes = df.duplicated(subset=FACTOR_COLS, keep=False)
+    if dupes.any():
+        # Same event under two filters would be applied twice: the filters overlap.
+        print(f"  WARNING: {dupes.sum()} rows repeat across filters; keeping one of each")
+        df = df.drop_duplicates(subset=FACTOR_COLS)
+    return df
 
 
 def _fetch_prices(ticker: str, start: str, end: str, options: dict) -> pd.Series:
@@ -114,6 +130,7 @@ def diagnose(ticker: str, start: str, end: str, tol: float) -> bool:
     print(f"  {len(factors)} factors | by operator: "
           f"{factors['operator'].value_counts().to_dict()} | by flag: "
           f"{factors['flag'].value_counts().to_dict()}")
+    print(factors.groupby(["filter", "operator", "flag"]).size().to_string())
     if not factors.empty:
         print(factors.sort_values("date").tail(8).to_string(index=False))
 
