@@ -9,6 +9,7 @@ python-dotenv
 pyyaml
 selenium
 beautifulsoup4
+blpapi
 # SPP valor cuota scrape (src/scrapers/spp.py): drives the installed Chrome
 # through the Imperva WAF; the driver ships inside the wheel (decision 10).
 playwright
