@@ -81,7 +81,10 @@ def _fetch_bulk(ticker: str, action_filter: str) -> pd.DataFrame:
     parsed = isinstance(result, pd.DataFrame)
 
     if parsed:
-        rows = result[FIELD].iloc[0] if FIELD in result.columns else result.to_dict("records")
+        # The vendor only yields a DataFrame for 0 rows (just an 'id' column)
+        # or exactly 1 row (the cell holds that row's dict).
+        cell = result[FIELD].iloc[0] if FIELD in result.columns else []
+        rows = [cell] if isinstance(cell, dict) else list(cell)
     else:
         rows = []
         for msg in result or []:
@@ -94,8 +97,7 @@ def _fetch_bulk(ticker: str, action_filter: str) -> pd.DataFrame:
     print(f"  {action_filter:<15} {len(df):>4} rows | vendor returned "
           f"{'DataFrame' if parsed else 'raw messages (bulk not parsed by secdata_list_to_df)'}")
     if df.empty:
-        return pd.DataFrame(columns=FACTOR_COLS + ["filter"])
-    df = df.drop(columns=[c for c in ("id",) if c in df.columns])
+        return pd.DataFrame(columns=FACTOR_COLS + ["filter"]).astype({"date": "datetime64[ns]"})
     assert df.shape[1] == 4, f"expected 4 bulk columns, got {list(df.columns)}"
     df.columns = FACTOR_COLS      # positional: date, factor, operator type, flag
     df["date"] = pd.to_datetime(df["date"])
