@@ -7,6 +7,9 @@ import blpapi
 import pandas as pd
 from typing import Iterable, Dict, Any
 import itertools
+import logging
+
+logger = logging.getLogger(__name__)
 
 def start_session(session = blpapi.Session()):
 
@@ -50,6 +53,30 @@ def secdata_to_df(sec_data):
 def secdata_list_to_df(sec_data_list):
     df = pd.concat(map(secdata_to_df, sec_data_list)).reset_index(drop=True)
     return df
+
+def bulk_to_df(toPy_list, field):
+    """
+    Parses a BULK reference field (one that returns a table per security,
+    e.g. EQY_DVD_ADJUST_FACT) into a long DataFrame: one row per bulk row,
+    columns = 'id' + the bulk's own sub-fields as Bloomberg names them.
+
+    secdata_to_df cannot do this: it puts the whole table in one cell, so
+    its output shape depends on the row count (0 rows -> id only, 1 row ->
+    a dict in a cell, 2+ rows -> ValueError). Here a security with no rows
+    simply contributes no rows, and an empty result is an empty DataFrame.
+
+    :param toPy_list: response.toPy() list of a ReferenceDataRequest
+    :param field: the bulk field requested
+    """
+    rows = []
+    for sec in get_securityData(toPy_list, 'ReferenceDataRequest'):
+        if sec.get('securityError'):
+            logger.warning(f"{sec['security']}: securityError {sec['securityError']}")
+        if sec.get('fieldExceptions'):
+            logger.warning(f"{sec['security']}: fieldExceptions {sec['fieldExceptions']}")
+        for row in sec.get('fieldData', {}).get(field, []):
+            rows.append({'id': sec['security'], **row})
+    return pd.DataFrame(rows)
 
 def create_request(session, subservice):
     
@@ -111,7 +138,8 @@ def data_request(
         'options': options or {}
     }
 
-def fetch_request(session, subservice, options):
+def fetch_request(session, subservice, options, parse=True):
+    """parse=False returns the response.toPy() list instead of a DataFrame."""
 
     try:
         request = create_request(session=session, subservice=subservice)
@@ -171,6 +199,9 @@ def fetch_request(session, subservice, options):
     
     toPys = [*map(lambda x:x.toPy(), responses)]
 
+    if not parse:
+        return toPys
+
     try:
         df = secdata_list_to_df(get_securityData(toPys, subservice=subservice))
     except ValueError as e:
@@ -186,3 +217,16 @@ def fetch_historical_request(options):
 def fetch_reference_request(options):
     session = blpapi.Session()
     return fetch_request(session, 'ReferenceDataRequest', options)
+
+def fetch_bulk_request(options):
+    """
+    ReferenceDataRequest for ONE bulk field, parsed by bulk_to_df.
+    Raises when Bloomberg returned no message at all, so a failed request
+    is never mistaken for "this security has no rows".
+    """
+    field, = options['fields']
+    session = blpapi.Session()
+    toPys = fetch_request(session, 'ReferenceDataRequest', options, parse=False)
+    if not toPys:
+        raise RuntimeError(f'Bloomberg returned no response for {field}')
+    return bulk_to_df(toPys, field)

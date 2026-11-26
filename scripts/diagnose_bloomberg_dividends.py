@@ -4,9 +4,9 @@
 # only (needs blpapi + a logged-in Terminal). Writes nothing.
 #
 # Per ticker it answers three questions:
-#   1. Does src.vendors.bloomberg.fetch_reference_request survive a
-#      BULK field (EQY_DVD_ADJUST_FACT), or does it fall back to raw
-#      messages? Either way the factor table is printed.
+#   1. Does src.vendors.bloomberg.fetch_bulk_request parse the BULK
+#      field EQY_DVD_ADJUST_FACT for 0, 1 and many rows, under each
+#      CORPORATE_ACTIONS_FILTER value? The factor table is printed.
 #   2. Do the four adjustment flags, all False, return raw prices?
 #   3. Does raw price + factors reproduce Bloomberg's fully adjusted
 #      PX_LAST? This is the go/no-go for "store raw, derive adjusted".
@@ -73,31 +73,15 @@ def _self_check() -> None:
 
 
 def _fetch_bulk(ticker: str, action_filter: str) -> pd.DataFrame:
-    from src.vendors.bloomberg import data_request, fetch_reference_request
+    from src.vendors.bloomberg import data_request, fetch_bulk_request
 
-    result = fetch_reference_request(data_request(
+    df = fetch_bulk_request(data_request(
         securities=[ticker], fields=[FIELD],
         options={"overrides": [{"fieldId": FILTER_OVERRIDE, "value": action_filter}]}))
-    parsed = isinstance(result, pd.DataFrame)
-
-    if parsed:
-        # The vendor only yields a DataFrame for 0 rows (just an 'id' column)
-        # or exactly 1 row (the cell holds that row's dict).
-        cell = result[FIELD].iloc[0] if FIELD in result.columns else []
-        rows = [cell] if isinstance(cell, dict) else list(cell)
-    else:
-        rows = []
-        for msg in result or []:
-            for sec in msg.get("securityData", []):
-                if sec.get("fieldExceptions"):
-                    print(f"  fieldExceptions: {sec['fieldExceptions']}")
-                rows.extend(sec.get("fieldData", {}).get(FIELD, []))
-
-    df = pd.DataFrame(rows)
-    print(f"  {action_filter:<15} {len(df):>4} rows | vendor returned "
-          f"{'DataFrame' if parsed else 'raw messages (bulk not parsed by secdata_list_to_df)'}")
+    print(f"  {action_filter:<15} {len(df):>4} rows | sub-fields: {list(df.columns)}")
     if df.empty:
         return pd.DataFrame(columns=FACTOR_COLS + ["filter"]).astype({"date": "datetime64[ns]"})
+    df = df.drop(columns="id")
     assert df.shape[1] == 4, f"expected 4 bulk columns, got {list(df.columns)}"
     df.columns = FACTOR_COLS      # positional: date, factor, operator type, flag
     df["date"] = pd.to_datetime(df["date"])
@@ -106,7 +90,8 @@ def _fetch_bulk(ticker: str, action_filter: str) -> pd.DataFrame:
 
 def _fetch_factors(ticker: str) -> pd.DataFrame:
     """One bulk call per CORPORATE_ACTIONS_FILTER value, concatenated."""
-    df = pd.concat([_fetch_bulk(ticker, f) for f in ACTION_FILTERS], ignore_index=True)
+    frames = [_fetch_bulk(ticker, f) for f in ACTION_FILTERS]
+    df = pd.concat([f for f in frames if not f.empty] or frames[:1], ignore_index=True)
     dupes = df.duplicated(subset=FACTOR_COLS, keep=False)
     if dupes.any():
         # Same event under two filters would be applied twice: the filters overlap.
@@ -145,11 +130,19 @@ def diagnose(ticker: str, start: str, end: str, tol: float) -> bool:
     calc = _apply_factors(raw, in_window)
     cmp = pd.DataFrame({"raw": raw, "bbg_adj": adj, "calc_adj": calc}).dropna()
     cmp["rel_diff"] = (cmp["calc_adj"] / cmp["bbg_adj"] - 1).abs()
-    worst = cmp["rel_diff"].max()
-    ok = worst <= tol
-    print(f"  reconciliation: max |calc/bbg - 1| = {worst:.2e}  ->  {'OK' if ok else 'MISMATCH'}")
+    cmp["abs_diff"] = (cmp["calc_adj"] - cmp["bbg_adj"]).abs()
+    # Bloomberg rounds the adjusted price to the quote's decimals (2 for a
+    # fund NAV), which on a low price is a large RELATIVE error. A row passes
+    # if it is within tol or within half a unit of the last decimal shown.
+    decimals = max(len(repr(float(x)).split(".")[1]) for x in cmp["bbg_adj"])
+    half_tick = 0.5 * 10 ** -decimals
+    bad = cmp[(cmp["rel_diff"] > tol) & (cmp["abs_diff"] > half_tick * 1.01)]
+    ok = bad.empty
+    print(f"  reconciliation: max |calc/bbg - 1| = {cmp['rel_diff'].max():.2e} | "
+          f"max abs diff = {cmp['abs_diff'].max():.2e} vs half tick {half_tick:g} "
+          f"({decimals} decimals)  ->  {'OK' if ok else f'MISMATCH on {len(bad)} days'}")
     if not ok:
-        print(cmp.sort_values("rel_diff", ascending=False).head(10).to_string())
+        print(bad.sort_values("abs_diff", ascending=False).head(10).to_string())
     return ok
 
 
