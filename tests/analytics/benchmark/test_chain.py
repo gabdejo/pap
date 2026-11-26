@@ -14,6 +14,10 @@
 #   - a constituent with no price at the strike fails loud, by name
 #   - holdings are end-of-day: a handover date carries the new basket
 #   - fixed weights re-strike on calendar boundaries
+#   - total return on RAW prices: a constituent's units are divided by
+#     its adjustment factors as ex-dates are crossed, so a split is not
+#     a loss, a dividend is reinvested, and no row depends on a factor
+#     dated after it
 # ---------------------------------------------------------------
 
 import datetime as dt
@@ -202,3 +206,100 @@ def test_fixed_weights_re_strike_restores_the_allocation():
     assert fixed[feb27] == pytest.approx(225.0)
     # Buy-and-hold periods pass through untouched.
     assert expand_fixed_weights([period]) == [period]
+
+
+# ---- Total return on raw prices: units follow the adjustment factors ----
+# A factor multiplies prices BEFORE its ex-date: 0.5 = 2:1 split,
+# 0.98 = 2% cash dividend. chain() divides the units by it instead.
+
+def _cf(label, weight, prices, factors):
+    return {"label": label, "weight": weight, "prices": prices, "factors": factors}
+
+
+def test_a_split_is_not_a_loss():
+    # Raw price halves on D3 with nothing else happening: the index is flat.
+    rows = {r["date"]: r for r in chain([{
+        "from": D1,
+        "constituents": [_cf("A", 1.0, {D1: 100.0, D2: 100.0, D3: 50.0, D4: 55.0}, {D3: 0.5})],
+    }])}
+    assert [rows[d]["level"] for d in (D1, D2, D3, D4)] == pytest.approx([100, 100, 100, 110])
+    units = [rows[d]["holdings"][0]["units"] for d in (D1, D2, D3, D4)]
+    assert units == pytest.approx([1.0, 1.0, 2.0, 2.0])
+    # The stored price stays the market price, never a back-adjusted one.
+    assert rows[D2]["holdings"][0]["price"] == 100.0
+    assert rows[D3]["holdings"][0]["price"] == 50.0
+
+
+def test_a_dividend_is_reinvested_in_the_paying_constituent():
+    # A pays 2% on D3 (100 -> 98 raw); B is flat. 50/50 at base 100.
+    rows = {r["date"]: r for r in chain([{
+        "from": D1,
+        "constituents": [
+            _cf("A", 0.5, {D1: 100.0, D2: 100.0, D3: 98.0, D4: 98.0}, {D3: 0.98}),
+            _c("B", 0.5, {D1: 10.0, D2: 10.0, D3: 10.0, D4: 10.0}),
+        ],
+    }])}
+    assert [rows[d]["level"] for d in (D1, D2, D3, D4)] == pytest.approx([100, 100, 100, 100])
+    a = {h["constituent"]["label"]: h for h in rows[D3]["holdings"]}["A"]
+    assert a["units"] == pytest.approx(0.5 / 0.98)
+    assert a["market_value"] == pytest.approx(50.0)
+
+
+def test_matches_chaining_a_back_adjusted_series():
+    # The same index from (raw prices + factors) and from the series
+    # Bloomberg would hand back fully adjusted.
+    raw = {D1: 100.0, D2: 104.0, D3: 51.0, D4: 49.5}
+    factors = {D3: 0.5, D4: 0.97}                       # split, then a 3% dividend
+    adjusted = {D1: 100.0 * 0.5 * 0.97, D2: 104.0 * 0.5 * 0.97, D3: 51.0 * 0.97, D4: 49.5}
+    other = {D1: 20.0, D2: 21.0, D3: 19.0, D4: 22.0}
+
+    from_raw = chain_levels([{"from": D1, "constituents": [
+        _cf("A", 0.7, raw, factors), _c("B", 0.3, other)]}])
+    from_adjusted = chain_levels([{"from": D1, "constituents": [
+        _c("A", 0.7, adjusted), _c("B", 0.3, other)]}])
+    assert [lv for _, lv in from_raw] == pytest.approx([lv for _, lv in from_adjusted])
+
+
+def test_ex_date_without_a_quote_waits_for_the_first_ex_price():
+    # A goes ex on D3 but only quotes on D4; B quotes daily, so D3 is in
+    # the grid with A's forward-filled CUM price. Growing the units there
+    # would show a 2% gain that reverses on D4.
+    rows = {r["date"]: r for r in chain([{
+        "from": D1,
+        "constituents": [
+            _cf("A", 0.5, {D1: 100.0, D2: 100.0, D4: 98.0}, {D3: 0.98}),
+            _c("B", 0.5, {D1: 10.0, D2: 10.0, D3: 10.0, D4: 10.0}),
+        ],
+    }])}
+    assert [rows[d]["level"] for d in (D1, D2, D3, D4)] == pytest.approx([100, 100, 100, 100])
+
+
+def test_a_factor_already_in_the_strike_price_is_not_applied_again():
+    # Struck ON the ex-date at the ex price: nothing to reinvest. A later
+    # factor still applies; a re-strike after it starts clean again.
+    A = {D1: 100.0, D2: 50.0, D3: 50.0, D4: 49.0}
+    factors = {D2: 0.5, D4: 0.98}
+    levels = dict(chain_levels([
+        {"from": D2, "constituents": [_cf("A", 1.0, A, factors)]},
+    ]))
+    assert [levels[d] for d in (D2, D3, D4)] == pytest.approx([100, 100, 100])
+
+    # Handover on the ex-date D4: the old basket earns the dividend on D4,
+    # the new one is struck at the ex price and does not earn it twice.
+    rows = {r["date"]: r for r in chain([
+        {"from": D2, "version_id": 1, "constituents": [_cf("A", 1.0, A, factors)]},
+        {"from": D4, "version_id": 2, "constituents": [_cf("A", 1.0, A, factors)]},
+    ])}
+    assert rows[D4]["level"] == pytest.approx(100.0)
+    assert rows[D4]["period"]["version_id"] == 2
+    assert rows[D4]["holdings"][0]["units"] == pytest.approx(100.0 / 49.0)
+
+
+def test_future_factors_do_not_change_earlier_rows():
+    # A row must be reproducible bit for bit before and after a later
+    # dividend is known: stored rows are never rewritten by new factors.
+    A = {D1: 100.0, D2: 103.0, D3: 51.0, D4: 50.0}
+    before = chain([{"from": D1, "constituents": [_cf("A", 1.0, A, {D3: 0.5})]}])
+    after = chain([{"from": D1, "constituents": [_cf("A", 1.0, A, {D3: 0.5, D4: 0.98})]}])
+    for b, a in zip(before[:3], after[:3]):
+        assert (b["level"], b["holdings"][0]["units"]) == (a["level"], a["holdings"][0]["units"])

@@ -221,7 +221,8 @@ def fetch_reference_request(options):
 def fetch_bulk_request(options):
     """
     ReferenceDataRequest for ONE bulk field, parsed by bulk_to_df.
-    Raises when Bloomberg returned no message at all, so a failed request
+    Raises when Bloomberg returned no message at all, or when a requested
+    security is absent from the response, so a failed or truncated request
     is never mistaken for "this security has no rows".
     """
     field, = options['fields']
@@ -229,4 +230,11 @@ def fetch_bulk_request(options):
     toPys = fetch_request(session, 'ReferenceDataRequest', options, parse=False)
     if not toPys:
         raise RuntimeError(f'Bloomberg returned no response for {field}')
+    answered = {s['security'] for s in get_securityData(toPys, 'ReferenceDataRequest')}
+    missing = sorted(set(options['securities']) - answered)
+    if missing:
+        raise RuntimeError(
+            f'{field}: {len(missing)} of {len(options["securities"])} securities '
+            f'missing from the response, e.g. {missing[:5]}'
+        )
     return bulk_to_df(toPys, field)

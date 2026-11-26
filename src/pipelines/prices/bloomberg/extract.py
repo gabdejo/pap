@@ -4,6 +4,7 @@
 # Accepts a list fo securites each with their own start_date,
 # batches them into a single Bloomberg call where possible,
 # and writes raw response to stg_prices_bloomberg.
+# Prices are requested UNADJUSTED (RAW_PRICES below).
 # ---------------------------------------------------------------
 
 import logging
@@ -14,6 +15,18 @@ import pandas as pd
 from src.vendors.bloomberg import data_request, fetch_historical_request
 
 logger = logging.getLogger(__name__)
+
+# fact_prices holds RAW prices: no dividend, no split adjustment. Left
+# unset, these follow the logged-in Terminal user's DPDF screen, so the
+# same request could return different history on different days. The
+# adjustment lives in fact_adjustment_factors + vw_prices_adjusted
+# (pipelines/prices/bloomberg/dividends).
+RAW_PRICES = {
+    'adjustmentFollowDPDF': False,
+    'adjustmentNormal': False,
+    'adjustmentAbnormal': False,
+    'adjustmentSplit': False,
+}
 
 def extract_prices(
     securities: list[dict],
@@ -76,7 +89,8 @@ def extract_prices(
                     securities=parsekyables,
                     fields=[field],
                     start_date=str(start_date),
-                    end_date=str(end_date)
+                    end_date=str(end_date),
+                    options=RAW_PRICES
                 )
             )
 

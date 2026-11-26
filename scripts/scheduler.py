@@ -40,7 +40,8 @@
 #   acquire_sbs -> ingest_sbs (when the files are on the share) ->
 #   positions_fms (when every fund has a CierreIDI) ->
 #   acquire_spp (afternoon slots until the book holds t-2) ->
-#   prices_bloomberg (16:30 America/New_York, DST-proof).
+#   prices_bloomberg (16:30 America/New_York, DST-proof) ->
+#   dividends_bloomberg (17:00 America/New_York).
 #
 # Deployment: no admin rights, so no service. Register a user-level
 # Windows Task Scheduler task per machine that launches
@@ -291,6 +292,18 @@ def job_prices_bloomberg() -> date:
     return run_date
 
 
+def job_dividends_bloomberg() -> date:
+    """Bloomberg price adjustment factors: full history for the held
+    equity universe, reconciled into fact_adjustment_factors. Scheduled
+    after prices_bloomberg so an ex-date's price and factor land the same
+    evening. No calendar guard: an unchanged pull writes nothing."""
+    logger.info("--- job: dividends bloomberg ---")
+    from src.pipelines.prices.bloomberg.dividends.run import run
+    run_date = date.today()
+    run(run_date=run_date)
+    return run_date
+
+
 def job_dim_enrichment() -> None:
     """Weekly Bloomberg dim enrichment, 'new' mode only: securities never
     asked about plus unrecognised ones past the retry window. Refreshing
@@ -446,6 +459,7 @@ def _register(
 # ingest_sbs needs none: any machine with the share and Postgres can run it.
 JOBS: dict[str, tuple[Callable, str, Optional[Callable[[], bool]], Optional[Callable[[], bool]]]] = {
     "prices_bloomberg": (job_prices_bloomberg, "Bloomberg daily prices",   None,             bloomberg_enabled),
+    "dividends_bloomberg": (job_dividends_bloomberg, "Bloomberg adjustment factors", None,    bloomberg_enabled),
     "dim_enrichment":   (job_dim_enrichment,   "Bloomberg dim enrichment", None,             bloomberg_enabled),
     "acquire_sbs":      (job_acquire_sbs,      "SBS daily acquisition",    None,             scraper_enabled),
     "acquire_spp":      (job_acquire_spp,      "SPP valor cuota scrape",   None,             scraper_enabled),

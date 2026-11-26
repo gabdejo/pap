@@ -40,6 +40,8 @@
 #                                  per slot until the book holds t-2
 #   16:30        prices_bloomberg  America/New_York — DST-proof "after
 #                                  NYSE close" regardless of season
+#   17:00        dividends_bloomberg  America/New_York — adjustment
+#                                  factors, after the prices they adjust
 # ---------------------------------------------------------------
 
 jobs:
@@ -48,6 +50,16 @@ jobs:
     day_of_week: mon-fri
     hour: 16
     minute: 30
+    timezone: America/New_York
+
+  # Half an hour behind prices_bloomberg: an ex-date's raw price and its
+  # adjustment factor should land the same evening, before any return is
+  # computed from them. Full-history pull, no gate.
+  dividends_bloomberg:
+    machine: BLOOMBERG-MSI
+    day_of_week: mon-fri
+    hour: 17
+    minute: 0
     timezone: America/New_York
 
   dim_enrichment:

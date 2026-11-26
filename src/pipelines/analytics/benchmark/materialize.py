@@ -24,6 +24,15 @@
 #   - The notional is explicit and unitless: valor_cartera = level,
 #     valor_cuota = level (one quota outstanding), so
 #     SUM(market_value_pen) per date = level and weights sum to 1.
+#   - TOTAL RETURN on raw prices: fact_prices is unadjusted, so each
+#     constituent carries its price adjustment factors
+#     (fact_adjustment_factors, docs/BLOOMBERG_SBS.md section 6) and its
+#     units are divided by the factor when an ex-date is crossed. A 2:1
+#     split (0.5) doubles the units as the price halves; a 2% dividend
+#     (0.98) grows them ~2%, i.e. reinvested in the paying constituent.
+#     Stored units are share counts and stored prices are market prices,
+#     and no row depends on a dividend that has not happened yet. A
+#     constituent without factors (indices, SPP NAVs) behaves as before.
 #   - Holdings on a date are END-OF-DAY: on a handover date they are
 #     the new basket's, struck at that day's level, which is what the
 #     next day's attribution needs. The level on the handover date is
@@ -102,13 +111,33 @@ UPSERT_HOLDING = """
 
 # ---- The arithmetic: chaining with drift ------------------------------
 
-def _price_at(prices: dict, dates: list, day) -> float | None:
-    """Forward-filled price: the last quote at or before `day`.
-    `dates` is sorted(prices), computed once per constituent by the
-    caller: a binary search per lookup instead of a sort, which made
-    chain() quadratic in dates (4.7 s for a 1993-onward benchmark)."""
+def _quote_at(prices: dict, dates: list, day) -> tuple:
+    """Forward-filled price: the last quote at or before `day`, with the
+    date it is from - (quote_date, price), or (None, None) before the
+    first quote. `dates` is sorted(prices), computed once per constituent
+    by the caller: a binary search per lookup instead of a sort, which
+    made chain() quadratic in dates (4.7 s for a 1993-onward benchmark)."""
     i = bisect_right(dates, day)
-    return prices[dates[i - 1]] if i else None
+    return (dates[i - 1], prices[dates[i - 1]]) if i else (None, None)
+
+
+def _cum_factors(factors: dict) -> tuple[list, list]:
+    """(sorted ex-dates, running product of their factors)."""
+    dates = sorted(factors)
+    running, acc = [], 1.0
+    for d in dates:
+        acc *= factors[d]
+        running.append(acc)
+    return dates, running
+
+
+def _factor_between(cum: tuple[list, list], after, upto) -> float:
+    """Product of the factors with ex-date in (after, upto]."""
+    dates, running = cum
+    lo, hi = bisect_right(dates, after), bisect_right(dates, upto)
+    if hi <= lo:
+        return 1.0
+    return running[hi - 1] / (running[lo - 1] if lo else 1.0)
 
 
 def chain(periods: list[dict], base: float = BASE_LEVEL) -> list[dict]:
@@ -118,6 +147,7 @@ def chain(periods: list[dict], base: float = BASE_LEVEL) -> list[dict]:
 
     periods: [{'from': date, 'constituents': [
                   {'label': str, 'weight': float, 'prices': {date: px},
+                   'factors': {ex_date: f}   (optional),
                    ...any other keys, carried through to the holdings}
               ], ...any other keys (e.g. 'version_id'), carried through}]
     ordered by 'from'. Each period runs until the next one starts (the
@@ -130,6 +160,14 @@ def chain(periods: list[dict], base: float = BASE_LEVEL) -> list[dict]:
     dates); a constituent with no price at or before a period start
     fails loud naming itself - a silently dropped leg would misprice
     the index.
+
+    'prices' are RAW. 'factors' are the constituent's price adjustment
+    factors (multiply prices before ex_date by f). Units are divided by
+    every factor whose ex-date lies after the quote the units were
+    struck at and at or before the quote being marked - so the units
+    change on the first date the constituent actually QUOTES ex, not on
+    a forward-filled cum price, and a factor already inside the strike
+    price is not applied twice. Without 'factors' the units are fixed.
 
     Returns one row per date, across all periods, base at the first
     period's start:
@@ -150,6 +188,16 @@ def chain(periods: list[dict], base: float = BASE_LEVEL) -> list[dict]:
         if key not in sorted_dates:
             sorted_dates[key] = sorted(c["prices"])
         return sorted_dates[key]
+
+    cum_factors: dict[int, tuple] = {}
+
+    def cum_of(c: dict) -> tuple | None:
+        factors = c.get("factors")
+        if not factors:
+            return None
+        if id(factors) not in cum_factors:
+            cum_factors[id(factors)] = _cum_factors(factors)
+        return cum_factors[id(factors)]
 
     for k, period in enumerate(periods):
         start = period["from"]
@@ -176,23 +224,26 @@ def chain(periods: list[dict], base: float = BASE_LEVEL) -> list[dict]:
             # known prices to it, so the baton always changes hands there.
             grid.append(end)
 
+        # (constituent, units at the strike, date of the strike quote)
         holdings = []
         for c in constituents:
-            p0 = _price_at(c["prices"], dates_of(c), start)
+            q0, p0 = _quote_at(c["prices"], dates_of(c), start)
             if p0 is None or p0 <= 0:
                 raise ValueError(
                     f"'{c['label']}' has no price at or before the "
                     f"effective date {start}.")
-            holdings.append((c, (c["weight"] * level) / p0))
+            holdings.append((c, (c["weight"] * level) / p0, q0))
 
         for i, d in enumerate(grid):
             marked = []
             value = 0.0
-            for c, units in holdings:
-                px = _price_at(c["prices"], dates_of(c), d)
+            for c, units0, q0 in holdings:
+                q, px = _quote_at(c["prices"], dates_of(c), d)
                 if px is None:
                     raise ValueError(
                         f"'{c['label']}' has no price at or before {d}.")
+                cum = cum_of(c)
+                units = units0 / _factor_between(cum, q0, q) if cum else units0
                 marked.append((c, units, px, units * px))
                 value += units * px
             # The strike date keeps the level the units were struck at
@@ -291,6 +342,18 @@ def _prices(conn, series_id: int) -> dict:
     return {r["date"]: float(r["price"]) for r in cur.fetchall()}
 
 
+def _factors(conn, entity_id: int) -> dict:
+    """{ex_date: factor} of one entity: the Bloomberg price adjustment
+    factors, the action types of a date multiplied together. Empty for
+    an entity that has none."""
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT date, EXP(SUM(LN(factor))) AS factor FROM fact_adjustment_factors "
+        "WHERE entity_id = %s AND source = 'bloomberg' GROUP BY date",
+        (entity_id,))
+    return {r["date"]: float(r["factor"]) for r in cur.fetchall()}
+
+
 def _convert(prices: dict, fx: dict) -> dict:
     """Constituent priced in the index currency: px * fx, forward-filling
     the FX leg onto the price dates. Dates before the first FX quote
@@ -328,6 +391,13 @@ def build_periods(conn, portfolio_id: int) -> list[dict]:
             cache[series_id] = _prices(conn, series_id)
         return cache[series_id]
 
+    factor_cache: dict[int, dict] = {}
+
+    def factors_of(entity_id):
+        if entity_id not in factor_cache:
+            factor_cache[entity_id] = _factors(conn, entity_id)
+        return factor_cache[entity_id]
+
     periods = []
     for v in versions:
         constituents = []
@@ -337,8 +407,8 @@ def build_periods(conn, portfolio_id: int) -> list[dict]:
                 px = _convert(px, prices_of(c["fx_series_id"]))
             constituents.append({
                 "label": c["label"], "weight": float(c["weight"]),
-                "prices": px, "series_id": c["series_id"],
-                "entity_id": c["entity_id"],
+                "prices": px, "factors": factors_of(c["entity_id"]),
+                "series_id": c["series_id"], "entity_id": c["entity_id"],
             })
         periods.append({
             "from": v["effective_from"], "version_id": v["version_id"],

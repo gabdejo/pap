@@ -18,8 +18,9 @@ FIELD = "EQY_DVD_ADJUST_FACT"
 
 
 def _row(d: date, factor: float) -> dict:
+    # Sub-field names as the Terminal returns them (verified 2026-11-26).
     return {"Adjustment Date": d, "Adjustment Factor": factor,
-            "Adjustment Factor Operator Type": 2.0, "Adjustment Factor Flag": 1.0}
+            "Operator Type": 2.0, "Flag": 1.0}
 
 
 def _sec(ticker: str, rows: list[dict] | None) -> dict:
@@ -39,7 +40,7 @@ def test_zero_one_and_many_rows_share_one_shape():
 
     assert list(df["id"]) == ["ONE US Equity", "MANY US Equity", "MANY US Equity"]
     assert list(df.columns) == ["id", "Adjustment Date", "Adjustment Factor",
-                                "Adjustment Factor Operator Type", "Adjustment Factor Flag"]
+                                "Operator Type", "Flag"]
     assert list(df["Adjustment Factor"]) == [0.95, 0.95, 0.94]
 
 
