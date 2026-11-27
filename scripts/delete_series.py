@@ -4,35 +4,44 @@
 # optionally their parent entity from the database.
 #
 # Deletes in FK dependency order:
-#   1. fact_prices / fact_macro / fact_fundamentals rows
+#   1. fact_prices rows
 #   2. series_registry rows
-#   3. dim_source_priority rows
-#   4. dim_internal_attributes rows
-#   5. stg_* staging rows
-#   6. dim_entity_identifiers rows       (if --delete-entity)
-#   7. dim_security / extension tables   (if --delete-entity)
-#   8. dim_macro                         (if --delete-entity)
-#   9. dim_entity row                    (if --delete-entity)
+#   3. stg_* Bloomberg staging rows (prices, dividends, security)
+#   4. fact_adjustment_factors rows      (if --delete-entity)
+#   5. dim_entity_identifiers rows       (if --delete-entity)
+#   6. dim_security / extension tables   (if --delete-entity)
+#   7. dim_entity row                    (if --delete-entity)
+#
+# Positions, contribution, benchmark constituents/assignments and
+# dim_portfolio.parent_entity_id are deliberately NOT cleaned: if the
+# entity is referenced there the FK rejects the delete and the whole
+# procode rolls back. An entity that is held or sits in a benchmark
+# should not be deleted.
+#
+# Only hand-curated entities (series.csv, the tablero) are accepted. An
+# entity carrying a codigo_sbs identifier is refused: nothing records
+# how a row was created, and that identifier is what marks it as part
+# of the SBS universe, which the pipelines would register again.
 #
 # USE WITH CARE - destructive and irreversible.
 # Always run --dry-run first to verify scope.
 #
 # Usage:
 #   # Dry run first - see what would be deleted
-#   python scripts/delete_series.py --ticker AAPL --dry-run
+#   python scripts/delete_series.py --procode AAPL --dry-run
 #
-#   # Delete all series for a ticker (keeps dim_entity)
-#   python scripts/delete_series.py --ticker AAPL
+#   # Delete all series for a procode (keeps dim_entity)
+#   python scripts/delete_series.py --procode AAPL
 #
 #   # Delete a specific field/source combination only
-#   python scripts/delete_series.py --ticker AAPL --field PX_LAST --source bloomberg
+#   python scripts/delete_series.py --procode AAPL --field PX_LAST --source bloomberg
 #
 #   # Delete series AND the parent entity + all dim rows
-#   python scripts/delete_series.py --ticker AAPL --delete-entity
+#   python scripts/delete_series.py --procode AAPL --delete-entity
 #
-#   # Delete multiple tickers at once
-#   python scripts/delete_series.py --ticker AAPL MSFT GOOGL --dry-run
-#   python scripts/delete_series.py --ticker AAPL MSFT GOOGL --delete-entity
+#   # Delete multiple procodes at once
+#   python scripts/delete_series.py --procode AAPL MSFT GOOGL --dry-run
+#   python scripts/delete_series.py --procode AAPL MSFT GOOGL --delete-entity
 # ---------------------------------------------------------------
 
 import argparse
@@ -54,10 +63,10 @@ def main() -> None:
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument(
-        "--ticker",
+        "--procode",
         nargs="+",
         required=True,
-        help="One or more internal ticker codes to delete (e.g. AAPL MSFT).",
+        help="One or more procodes (dim_entity.procode) to delete (e.g. AAPL MSFT).",
     )
     parser.add_argument(
         "--field",
@@ -100,9 +109,9 @@ def main() -> None:
     args = parser.parse_args()
     setup_logging("delete_series")
 
-    for ticker in args.ticker:
-        _delete_ticker(
-            ticker=ticker,
+    for procode in args.procode:
+        _delete_procode(
+            procode=procode,
             field=args.field,
             source=args.source,
             delete_entity=args.delete_entity,
@@ -115,10 +124,10 @@ def main() -> None:
         logger.info("Deletion complete.")
 
 
-# ---- Per-ticker deletion ---------------------------------------
+# ---- Per-procode deletion ---------------------------------------
 
-def _delete_ticker(
-    ticker: str,
+def _delete_procode(
+    procode: str,
     field: str | None,
     source: str | None,
     delete_entity: bool,
@@ -129,33 +138,48 @@ def _delete_ticker(
 
         # Resolve entity
         entity = conn.execute(
-            "SELECT entity_id, entity_type FROM dim_entity WHERE procode = ?",
-            (ticker,),
+            "SELECT entity_id, entity_type FROM dim_entity WHERE procode = %s",
+            (procode,),
         ).fetchone()
 
         if not entity:
-            logger.warning(f"Procode '{ticker}' not found in dim_entity. Skipping.")
+            logger.warning(f"Procode '{procode}' not found in dim_entity. Skipping.")
             return
 
         entity_id   = entity["entity_id"]
         entity_type = entity["entity_type"]
 
+        # Only hand-curated entities. One with a codigo_sbs belongs to the
+        # SBS universe (discovered there, or a seed that adopted it by ISIN):
+        # the SBS run or the held rule would register it again under a new
+        # entity_id, with its history gone.
+        if conn.execute(
+            "SELECT 1 FROM dim_entity_identifiers "
+            "WHERE entity_id = %s AND id_type = 'codigo_sbs' LIMIT 1",
+            (entity_id,),
+        ).fetchone():
+            logger.warning(
+                f"Procode '{procode}' (entity_id={entity_id}) has a codigo_sbs: "
+                f"it is part of the SBS universe, not a curated series. Skipping."
+            )
+            return
+
         # Resolve series to delete
-        query  = "SELECT series_id, field, domain, source FROM series_registry WHERE entity_id = ?"
+        query  = "SELECT series_id, field, domain, source FROM series_registry WHERE entity_id = %s"
         params = [entity_id]
 
         if field:
-            query  += " AND field = ?"
+            query  += " AND field = %s"
             params.append(field)
         if source:
-            query  += " AND source = ?"
+            query  += " AND source = %s"
             params.append(source)
 
         series_rows = conn.execute(query, params).fetchall()
 
         if not series_rows:
             logger.warning(
-                f"No series found for procode='{ticker}' "
+                f"No series found for procode='{procode}' "
                 f"field={field or 'any'} source={source or 'any'}. Skipping."
             )
             return
@@ -164,7 +188,7 @@ def _delete_ticker(
 
         logger.info(
             f"{'[DRY RUN] ' if dry_run else ''}"
-            f"procode='{ticker}' entity_id={entity_id} "
+            f"procode='{procode}' entity_id={entity_id} "
             f"entity_type={entity_type} | "
             f"{len(series_ids)} series to delete"
         )
@@ -177,36 +201,26 @@ def _delete_ticker(
             )
 
         # Count fact rows
-        ph = ",".join("?" * len(series_ids))
-        counts = {
-            "fact_prices":        _count(conn, "fact_prices",        series_ids, ph),
-            #"fact_macro":         _count(conn, "fact_macro",         series_ids, ph),
-            #"fact_fundamentals":  _count(conn, "fact_fundamentals",  series_ids, ph),
-            "stg_prices_bloomberg": _count_stg(conn, "stg_prices_bloomberg", entity_id),
-            "stg_macro_bloomberg":  _count_stg(conn, "stg_macro_bloomberg",  entity_id),
-        }
-        for table, cnt in counts.items():
-            if cnt:
-                logger.info(f"  {table}: {cnt:,} rows will be deleted")
+        cnt = conn.execute(
+            "SELECT COUNT(*) AS n FROM fact_prices WHERE series_id = ANY(%s)",
+            (series_ids,),
+        ).fetchone()["n"]
+        logger.info(f"  fact_prices: {cnt:,} rows will be deleted")
 
         if dry_run:
             return
 
-        placeholders = ",".join("?" * len(series_ids))
-
         # 1. Fact tables
-        for fact_table in ["fact_prices"]:#, "fact_macro", "fact_fundamentals"):
-            deleted = conn.execute(
-                f"DELETE FROM {fact_table} WHERE series_id IN ({placeholders})",
-                series_ids,
-            ).rowcount
-            if deleted:
-                logger.info(f"  Deleted {deleted:,} rows from {fact_table}.")
+        deleted = conn.execute(
+            "DELETE FROM fact_prices WHERE series_id = ANY(%s)",
+            (series_ids,),
+        ).rowcount
+        logger.info(f"  Deleted {deleted:,} rows from fact_prices.")
 
         # 2. series_registry
         deleted = conn.execute(
-            f"DELETE FROM series_registry WHERE series_id IN ({placeholders})",
-            series_ids,
+            "DELETE FROM series_registry WHERE series_id = ANY(%s)",
+            (series_ids,),
         ).rowcount
         logger.info(f"  Deleted {deleted} rows from series_registry.")
 
@@ -214,7 +228,7 @@ def _delete_ticker(
         bbg_ticker_row = conn.execute(
             """
             SELECT id_value FROM dim_entity_identifiers
-            WHERE entity_id = ? AND id_type = 'parsekyable'
+            WHERE entity_id = %s AND id_type = 'parsekyable'
             """,
             (entity_id,),
         ).fetchone()
@@ -223,22 +237,19 @@ def _delete_ticker(
             bbg_ticker = bbg_ticker_row["id_value"]
             for stg_table in (
                 "stg_prices_bloomberg",
-                #"stg_macro_bloomberg",
+                "stg_prices_bloomberg_dividends",
                 "stg_security_bloomberg",
             ):
-                try:
-                    deleted = conn.execute(
-                        f"DELETE FROM {stg_table} WHERE parsekyable = ?",
-                        (bbg_ticker,),
-                    ).rowcount
-                    if deleted:
-                        logger.info(f"  Deleted {deleted:,} rows from {stg_table}.")
-                except Exception:
-                    pass  # staging table may not exist yet
+                deleted = conn.execute(
+                    f"DELETE FROM {stg_table} WHERE parsekyable = %s",
+                    (bbg_ticker,),
+                ).rowcount
+                if deleted:
+                    logger.info(f"  Deleted {deleted:,} rows from {stg_table}.")
 
         if not delete_entity:
             logger.info(
-                f"Series deleted for '{ticker}'. "
+                f"Series deleted for '{procode}'. "
                 f"Entity and dim rows retained (use --delete-entity to remove)."
             )
             return
@@ -246,22 +257,28 @@ def _delete_ticker(
         # Check no remaining series exist for this entity before
         # deleting entity-level rows
         remaining = conn.execute(
-            "SELECT COUNT(*) FROM series_registry WHERE entity_id = ?",
+            "SELECT COUNT(*) AS n FROM series_registry WHERE entity_id = %s",
             (entity_id,),
-        ).fetchone()[0]
+        ).fetchone()["n"]
 
         if remaining > 0:
             logger.warning(
-                f"'{ticker}' still has {remaining} series in series_registry "
+                f"'{procode}' still has {remaining} series in series_registry "
                 f"after deletion (from other field/source combinations). "
                 f"Skipping entity deletion to preserve referential integrity. "
                 f"Delete all series first or add --field / --source filters."
             )
             return
 
+        # Adjustment factors hang off the entity, not a series
+        conn.execute(
+            "DELETE FROM fact_adjustment_factors WHERE entity_id = %s",
+            (entity_id,),
+        )
+
         # 6. dim_entity_identifiers
         deleted = conn.execute(
-            "DELETE FROM dim_entity_identifiers WHERE entity_id = ?",
+            "DELETE FROM dim_entity_identifiers WHERE entity_id = %s",
             (entity_id,),
         ).rowcount
         logger.info(f"  Deleted {deleted} rows from dim_entity_identifiers.")
@@ -269,7 +286,7 @@ def _delete_ticker(
         # 7. Extension tables and dim_security / dim_macro
         if entity_type == "security":
             sec_row = conn.execute(
-                "SELECT security_id FROM dim_security WHERE entity_id = ?",
+                "SELECT security_id FROM dim_security WHERE entity_id = %s",
                 (entity_id,),
             ).fetchone()
 
@@ -279,72 +296,25 @@ def _delete_ticker(
                     "dim_security_equity",
                     "dim_security_fund",
                     "dim_security_bond",
-                    "dim_security_future",
-                    "dim_security_fx",
-                    "dim_security_rate_index",
-                    "dim_security_index",
                 ):
-                    try:
-                        conn.execute(
-                            f"DELETE FROM {ext_table} WHERE security_id = ?",
-                            (security_id,),
-                        )
-                    except Exception:
-                        pass  # extension table may not exist
+                    conn.execute(
+                        f"DELETE FROM {ext_table} WHERE security_id = %s",
+                        (security_id,),
+                    )
 
                 conn.execute(
-                    "DELETE FROM dim_security WHERE entity_id = ?",
+                    "DELETE FROM dim_security WHERE entity_id = %s",
                     (entity_id,),
                 )
                 logger.info(f"  Deleted dim_security and extension rows.")
 
-        elif entity_type == "macro":
-            conn.execute(
-                "DELETE FROM dim_macro WHERE entity_id = ?",
-                (entity_id,),
-            )
-            logger.info(f"  Deleted dim_macro row.")
-
         # 8. dim_entity (last - everything else references it)
         conn.execute(
-            "DELETE FROM dim_entity WHERE entity_id = ?",
+            "DELETE FROM dim_entity WHERE entity_id = %s",
             (entity_id,),
         )
-        logger.info(f"  Deleted dim_entity row for '{ticker}' (entity_id={entity_id}).")
-        logger.info(f"Entity '{ticker}' fully removed from database.")
-
-
-# ---- Helpers ---------------------------------------------------
-
-def _count(conn, table: str, series_ids: list, placeholders: str) -> int:
-    try:
-        row = conn.execute(
-            f"SELECT COUNT(*) FROM {table} WHERE series_id IN ({placeholders})",
-            series_ids,
-        ).fetchone()
-        return row[0] if row else 0
-    except Exception:
-        return 0
-
-
-def _count_stg(conn, table: str, entity_id: int) -> int:
-    try:
-        bbg_row = conn.execute(
-            """
-            SELECT id_value FROM dim_entity_identifiers
-            WHERE entity_id = ? AND id_type = 'parsekyable'
-            """,
-            (entity_id,),
-        ).fetchone()
-        if not bbg_row:
-            return 0
-        row = conn.execute(
-            f"SELECT COUNT(*) FROM {table} WHERE parsekyable = ?",
-            (bbg_row["id_value"],),
-        ).fetchone()
-        return row[0] if row else 0
-    except Exception:
-        return 0
+        logger.info(f"  Deleted dim_entity row for '{procode}' (entity_id={entity_id}).")
+        logger.info(f"Entity '{procode}' fully removed from database.")
 
 
 if __name__ == "__main__":
