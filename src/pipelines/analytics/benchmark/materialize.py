@@ -18,7 +18,8 @@
 #   - buy_and_hold: weights are the allocation AT effective_from only;
 #     afterwards each holding floats with its price (weights drift).
 #   - fixed_weights: the same allocation is re-struck at every
-#     rebalance boundary (monthly | quarterly | annual) until the next
+#     rebalance boundary (monthly | quarterly | annual: calendar period
+#     starts; daily: every date a constituent quotes) until the next
 #     version takes over.
 #   - heuristic: a named rule without a module yet; refused.
 #   - The notional is explicit and unitless: valor_cartera = level,
@@ -55,7 +56,7 @@
 
 import datetime as dt
 import logging
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 
 from src.db.queries import update_series_run_metadata
 from src.pipelines.analytics.benchmark import definitions
@@ -119,6 +120,12 @@ def _quote_at(prices: dict, dates: list, day) -> tuple:
     made chain() quadratic in dates (4.7 s for a 1993-onward benchmark)."""
     i = bisect_right(dates, day)
     return (dates[i - 1], prices[dates[i - 1]]) if i else (None, None)
+
+
+def _window(dates: list, start, end) -> list:
+    """The sorted `dates` within [start, end]; end=None is open-ended."""
+    hi = len(dates) if end is None else bisect_right(dates, end)
+    return dates[bisect_left(dates, start):hi]
 
 
 def _cum_factors(factors: dict) -> tuple[list, list]:
@@ -213,8 +220,10 @@ def chain(periods: list[dict], base: float = BASE_LEVEL) -> list[dict]:
         # holdings at the previous close's level and priced them at the
         # handover date, so the index came out flat that day and the
         # real return was lost - once per rebalance, always.
-        grid = sorted({d for c in constituents for d in c["prices"]
-                       if d >= start and (end is None or d <= end)})
+        # Sliced by binary search, not scanned: a daily-rebalanced basket
+        # is one period per date, and a scan per period is quadratic.
+        grid = sorted({d for c in constituents
+                       for d in _window(dates_of(c), start, end)})
         if not grid or grid[0] != start:
             # The period must start pricing AT its effective date; the
             # holdings are struck there.
@@ -324,7 +333,14 @@ def expand_fixed_weights(periods: list[dict]) -> list[dict]:
         else:
             end = max((d for c in period["constituents"] for d in c["prices"]),
                       default=start)
-        for boundary in rebalance_dates(start, end, period["rebalance_frequency"]):
+        if period["rebalance_frequency"] == "daily":
+            # Every date a constituent quotes: a re-strike on a day with
+            # no new price would restore weights that have not moved.
+            boundaries = sorted({d for c in period["constituents"]
+                                 for d in c["prices"] if d > start})
+        else:
+            boundaries = rebalance_dates(start, end, period["rebalance_frequency"])
+        for boundary in boundaries:
             if boundary >= end:
                 break
             out.append({**period, "from": boundary, "synthetic": True})

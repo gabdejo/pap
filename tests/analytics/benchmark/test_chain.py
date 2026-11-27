@@ -208,6 +208,21 @@ def test_fixed_weights_re_strike_restores_the_allocation():
     assert expand_fixed_weights([period]) == [period]
 
 
+def test_daily_fixed_weights_re_strike_on_every_quote_date():
+    A = {D1: 10.0, D2: 20.0, D3: 20.0}     # doubles, then flat
+    B = {D1: 10.0, D2: 10.0, D3: 20.0}     # flat, then doubles
+    periods = expand_fixed_weights([{
+        "from": D1, "version_id": 7, "method": "fixed_weights",
+        "rebalance_frequency": "daily",
+        "constituents": [_c("A", 0.5, A), _c("B", 0.5, B)]}])
+    assert [p["from"] for p in periods] == [D1, D2]     # the last date strikes nothing
+    rows = {r["date"]: r for r in chain(periods)}
+    # 100 -> 150, re-struck 50/50 there, so B doubling adds 75 (drift: 50).
+    assert rows[D2]["level"] == pytest.approx(150.0)
+    assert rows[D3]["level"] == pytest.approx(225.0)
+    assert [h["weight"] for h in rows[D2]["holdings"]] == pytest.approx([0.5, 0.5])
+
+
 # ---- Total return on raw prices: units follow the adjustment factors ----
 # A factor multiplies prices BEFORE its ex-date: 0.5 = 2:1 split,
 # 0.98 = 2% cash dividend. chain() divides the units by it instead.

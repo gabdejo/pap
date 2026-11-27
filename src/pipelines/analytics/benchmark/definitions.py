@@ -49,7 +49,7 @@ PORTFOLIO_TYPE = "benchmark"
 LEVEL_FIELD = "PX_LAST"
 LEVEL_DOMAIN = "prices"
 METHODS = ("buy_and_hold", "fixed_weights", "heuristic")
-FREQUENCIES = ("monthly", "quarterly", "annual")
+FREQUENCIES = ("daily", "monthly", "quarterly", "annual")
 CHANGE_TYPES = ("initial", "rebalance", "methodology", "constituent_change",
                 "correction")
 

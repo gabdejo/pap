@@ -29,7 +29,8 @@
 --   method      buy_and_hold   weights set at effective_from, holdings
 --                              drift with prices until the next version
 --               fixed_weights  weights restored every rebalance_frequency
---                              (monthly | quarterly | annual)
+--                              (monthly | quarterly | annual; 'daily'
+--                              is added by 50_benchmark_rebalance_daily.sql)
 --               heuristic      a named rule; reserved, not materialized
 --   change_type initial | rebalance | methodology | constituent_change
 --               | correction

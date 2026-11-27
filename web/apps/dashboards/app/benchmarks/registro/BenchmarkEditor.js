@@ -40,7 +40,7 @@ const METHOD = 'buy_and_hold';
 const METHOD_LABELS = {
   buy_and_hold: 'Manual rebalancing', fixed_weights: 'Fixed weights (periodic rebalancing)', heuristic: 'Heuristic',
 };
-const FREQUENCY_LABELS = { monthly: 'monthly', quarterly: 'quarterly', annual: 'annual' };
+const FREQUENCY_LABELS = { daily: 'daily', monthly: 'monthly', quarterly: 'quarterly', annual: 'annual' };
 const ENTITY_TYPES = { security: 'Security (stock, ETF, bond)', index: 'Index', fund: 'Fund' };
 const STATUS = {
   active: 'active', 'backfill-pending': 'history pending', suspended: 'suspended',
