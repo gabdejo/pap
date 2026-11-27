@@ -93,8 +93,8 @@ def main() -> None:
         dest="delete_entity",
         help=(
             "Also delete the parent entity and all associated dim rows "
-            "(dim_entity, dim_security, dim_macro, dim_entity_identifiers, "
-            "dim_source_priority, extension tables). "
+            "(dim_entity, dim_security and its extension tables, "
+            "dim_entity_identifiers, fact_adjustment_factors). "
             "Only safe when ALL series for the entity are being deleted."
         ),
     )
